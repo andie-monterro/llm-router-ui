@@ -8,6 +8,7 @@ import (
 type Config struct {
 	Listen    string
 	Zrok      *ZrokConfig
+	Agora     *AgoraConfig
 	Providers *ProvidersConfig
 	Routing   *routing.RoutingConfig
 	Metrics   *MetricsConfig
@@ -30,6 +31,45 @@ type ZrokShareConfig struct {
 	Token   string // existing persistent share token (private shares only)
 }
 
+type AgoraConfig struct {
+	Enabled         bool
+	IntegrationFile string
+
+	APIEndpoint string
+	EnvRoot     string
+
+	InstanceName string
+	Description  string
+	TunnelMode   string // tcp, http, or udp
+
+	Advertisement *AgoraAdvertisementConfig
+	Serve         *AgoraServeConfig
+}
+
+type AgoraAdvertisementConfig struct {
+	Publish      *bool
+	WorkgroupIDs []string `dd:"workgroup_ids"`
+	ContractID   string
+	Capabilities []string
+}
+
+type AgoraServeConfig struct {
+	Enabled       bool
+	BackendTarget string
+	Grants        []string
+}
+
+type AgoraIntegrationFile struct {
+	APIEndpoint   string
+	EnvRoot       string
+	Advertisement *AgoraIntegrationAdvertisement
+}
+
+type AgoraIntegrationAdvertisement struct {
+	WorkgroupIDs []string `dd:"workgroup_ids"`
+	ContractID   string
+}
+
 type ProvidersConfig struct {
 	OpenAI    *OpenAIConfig
 	Anthropic *AnthropicConfig
@@ -40,17 +80,20 @@ type OpenAIConfig struct {
 	APIKey         string
 	BaseURL        string
 	ZrokShareToken string
+	AgoraService   string
 }
 
 type AnthropicConfig struct {
 	APIKey         string
 	BaseURL        string
 	ZrokShareToken string
+	AgoraService   string
 }
 
 type LocalConfig struct {
 	BaseURL        string
 	ZrokShareToken string
+	AgoraService   string
 	Endpoints      []LocalEndpointConfig
 	HealthCheck    *HealthCheckConfig
 }
@@ -59,6 +102,7 @@ type LocalEndpointConfig struct {
 	Name           string
 	BaseURL        string
 	ZrokShareToken string
+	AgoraService   string
 	Weight         int
 }
 

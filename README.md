@@ -1,12 +1,13 @@
 # llm-gateway
 
-An OpenAI-compatible API proxy that routes requests to OpenAI, Anthropic, and any OpenAI-compatible backend (Ollama, vLLM, llama-server, SGLang, etc.). Optionally expose the gateway via [zrok](https://zrok.io) for zero-trust access.
+An OpenAI-compatible API proxy that routes requests to OpenAI, Anthropic, and any OpenAI-compatible backend (Ollama, vLLM, llama-server, SGLang, etc.). Optionally expose the gateway and reach providers through [zrok](https://zrok.io) or [Agora](https://github.com/openziti/agora) for zero-trust access.
 
 ## Why another LLM gateway?
 
 Most LLM proxies solve API translation. This one also solves the network problem: how do you connect a gateway to GPU boxes behind NAT, expose it to clients without opening ports, and route requests to the right model — all without bolting on a VPN, a service mesh, or a routing database?
 
 - **Zero-trust networking with zrok (over OpenZiti)** — the gateway and its backends communicate using [zrok](https://github.com/openziti/zrok) over [OpenZiti](https://openziti.io) overlay networks. Expose the gateway or reach a backend across NAT, air-gapped networks, or cloud boundaries without firewall rules or port forwarding. Both directions work the same way.
+- **Agora integration** — publish the gateway in an Agora catalog, serve it over an Agora Layer 1 tunnel, and connect providers through Agora services.
 - **Semantic routing** — a three-layer cascade (keyword heuristics, embedding similarity, LLM classifier) selects the best model automatically when clients omit the `model` field. No hand-maintained routing tables.
 - **Multi-endpoint load balancing** — weighted round-robin, health checks with passive failover, and VM sleep detection across a pool of inference servers. Works with Ollama, llama-server, vLLM, SGLang, or anything that exposes `/v1/chat/completions`. Built for distributing inference across real hardware.
 - **Single binary, zero infrastructure** — one Go binary, one YAML file. No database, no message queue, no sidecar.
@@ -21,7 +22,8 @@ Most LLM proxies solve API translation. This one also solves the network problem
 - **Multi-endpoint load balancing**: Round-robin load distribution and automatic failover across multiple inference backends
 - **OpenTelemetry metrics**: Prometheus-exported metrics for requests, latency, tokens, and endpoint health
 - **zrok integration**: Expose the gateway via zrok private or public shares
-- **Zero-trust backends**: Connect to any provider via zrok shares (no exposed ports)
+- **Agora integration**: Publish, serve, and connect through Agora networks
+- **Zero-trust backends**: Connect to any provider via zrok shares or Agora services (no exposed ports)
 
 > **New here?** See the [Getting Started guide](docs/getting-started.md) for a step-by-step walkthrough from zero to a working gateway.
 
@@ -108,12 +110,14 @@ providers:
         base_url: "http://10.0.0.2:11434"
       - name: remote
         zrok_share_token: "abc123"
+      - name: agora-remote
+        agora_service: "gpu-service"
     health_check:
       interval_seconds: 30   # default: 30
       timeout_seconds: 5     # default: 5
 ```
 
-Each endpoint can use direct HTTP or a zrok share. The optional `weight` (default: 1) controls the proportion of traffic an endpoint receives — an endpoint with weight 3 gets ~3x the requests of weight 1. A background goroutine pings each endpoint at the configured interval and marks unhealthy endpoints for automatic skip. Network errors during requests also trigger immediate passive failover. All gateway features that use the local provider (chat completions, embeddings, classifier) distribute requests across the endpoint group.
+Each endpoint can use direct HTTP, a zrok share, or an Agora service. The optional `weight` (default: 1) controls the proportion of traffic an endpoint receives — an endpoint with weight 3 gets ~3x the requests of weight 1. A background goroutine pings each endpoint at the configured interval and marks unhealthy endpoints for automatic skip. Network errors during requests also trigger immediate passive failover. All gateway features that use the local provider (chat completions, embeddings, classifier) distribute requests across the endpoint group.
 
 The endpoints don't all have to run the same software. You can mix Ollama, vLLM, llama-server, or any other OpenAI-compatible server in the same pool — the load balancing layer doesn't care what's behind the URL.
 
@@ -148,20 +152,37 @@ zrok:
     mode: private      # public or private
     token: ""          # use existing persistent share (private only)
 
+agora:
+  enabled: false
+  # integration_file: ""       # optional: generated partial agora config
+  # api_endpoint: "http://127.0.0.1:8080"
+  # env_root: ""
+  # instance_name: "engineering"
+  # tunnel_mode: tcp
+  # advertisement:
+  #   publish: true
+  #   workgroup_ids: ["wg_abcdefghijkl"]
+  #   contract_id: ""
+  # serve:
+  #   enabled: false
+
 providers:
   open_ai:
     api_key: "${OPENAI_API_KEY}"
     base_url: ""             # optional: override for Azure or compatible APIs
     zrok_share_token: ""     # optional: connect via zrok share
+    agora_service: ""        # optional: connect via Agora service
 
   anthropic:
     api_key: "${ANTHROPIC_API_KEY}"
     base_url: ""             # optional: override base URL
     zrok_share_token: ""     # optional: connect via zrok share
+    agora_service: ""        # optional: connect via Agora service
 
   local:
     base_url: "http://localhost:11434"
     zrok_share_token: ""     # optional: connect via zrok share
+    agora_service: ""        # optional: connect via Agora service
 
     # or use multi-endpoint mode for round-robin + failover:
     # endpoints:
@@ -171,6 +192,8 @@ providers:
     #     base_url: "http://10.0.0.2:11434"
     #   - name: remote
     #     zrok_share_token: "abc123"
+    #   - name: agora-remote
+    #     agora_service: "gpu-service"
     # health_check:
     #   interval_seconds: 30
     #   timeout_seconds: 5
@@ -371,9 +394,11 @@ Each chat completion request is logged with the model, message count, streaming 
 llm-gateway run <configPath>
 
 Flags:
-      --address string     listen address (overrides config)
-      --zrok               enable zrok sharing (overrides config)
-      --zrok-mode string   zrok share mode: public, private (overrides config)
+      --address string                  listen address (overrides config)
+      --zrok                            enable zrok sharing (overrides config)
+      --zrok-mode string                zrok share mode: public, private (overrides config)
+      --network string                  network shortcut: zrok or agora
+      --agora-integration-file string   path to Agora integration file (overrides config)
 ```
 
 ## zrok Integration
@@ -425,6 +450,32 @@ providers:
   local:
     zrok_share_token: "ollama-share-token"
 ```
+
+## Agora Integration
+
+Agora support lets the gateway publish itself in an Agora catalog,
+serve the gateway API over an Agora Layer 1 tunnel, and connect to
+providers through Agora services:
+
+```yaml
+agora:
+  enabled: true
+  api_endpoint: "http://127.0.0.1:8080"
+  advertisement:
+    workgroup_ids:
+      - wg_abcdefghijkl
+  serve:
+    enabled: true
+
+providers:
+  local:
+    agora_service: "local-llm"
+```
+
+Agora is additive: the local HTTP listener remains active, and
+providers can mix direct, zrok, and Agora transports. See
+[docs/agora.md](docs/agora.md) for the full config and lifecycle
+details.
 
 ## Examples
 
@@ -482,6 +533,7 @@ for chunk in stream:
 - [Metrics](docs/metrics.md) -- Prometheus instruments and example queries
 - [Streaming](docs/streaming.md) -- SSE streaming details
 - [zrok](docs/zrok.md) -- overlay networking for sharing and access
+- [Agora](docs/agora.md) -- catalog publishing, serving, and provider connects over Agora
 
 ## License
 

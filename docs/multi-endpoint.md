@@ -29,12 +29,16 @@ providers:
         base_url: "http://10.0.0.2:11434"
       - name: remote
         zrok_share_token: "abc123"
+      - name: agora-remote
+        agora_service: "gpu-service"
     health_check:
       interval_seconds: 30
       timeout_seconds: 5
 ```
 
-Each endpoint has a `name` (used in logs and metrics) and either a `base_url` for direct HTTP or a `zrok_share_token` for overlay access. You can mix both in the same config.
+Each endpoint has a `name` (used in logs and metrics) and one transport: `base_url` for direct HTTP, `zrok_share_token` for zrok overlay access, or `agora_service` for Agora overlay access. You can mix transports in the same endpoint list.
+
+Do not set both `zrok_share_token` and `agora_service` on the same endpoint. If an endpoint uses `agora_service`, `name` is required because the gateway tracks the connect as `local:<name>`.
 
 The optional `weight` field (default: 1) controls the proportion of traffic each endpoint receives. An endpoint with `weight: 3` gets roughly 3x the requests of an endpoint with `weight: 1`.
 
@@ -117,12 +121,15 @@ providers:
       - name: cloud-a100
         zrok_share_token: "a100-share"
         weight: 3
+      - name: agora-h100
+        agora_service: "h100-service"
+        weight: 2
     health_check:
       interval_seconds: 15
       timeout_seconds: 3
 ```
 
-With these weights, out of every 6 requests roughly 1 goes to the 3090, 2 to the 4090, and 3 to the A100. If the cloud machine goes offline, health checks detect the failure and requests are distributed across the two local machines until it recovers.
+With these weights, out of every 8 requests roughly 1 goes to the 3090, 2 to the 4090, 3 to the A100, and 2 to the H100. If a remote machine goes offline, health checks detect the failure and requests are distributed across the remaining healthy machines until it recovers.
 
 ## Example: Mixed Backends
 

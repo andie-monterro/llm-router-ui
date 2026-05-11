@@ -33,6 +33,18 @@ If the target provider isn't configured, the gateway returns an error:
 {"error": {"message": "provider 'openai' is not configured", "type": "invalid_request_error"}}
 ```
 
+## Provider Transport Options
+
+Each provider can use direct HTTP, zrok, or Agora:
+
+| Config field | Effect |
+|---|---|
+| `base_url` | Direct HTTP target for the provider API |
+| `zrok_share_token` | Routes the provider through a zrok share |
+| `agora_service` | Creates an Agora connect and routes the provider through the returned local listen address |
+
+Do not set `zrok_share_token` and `agora_service` on the same provider or endpoint. Multi-endpoint local providers can mix direct, zrok, and Agora endpoints in one pool. See [zrok](zrok.md) and [Agora](agora.md) for transport details.
+
 ## OpenAI Provider
 
 The OpenAI provider is a direct pass-through. Requests are forwarded to `POST {base_url}/v1/chat/completions` with an `Authorization: Bearer` header. Responses are returned unmodified.

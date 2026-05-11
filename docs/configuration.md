@@ -14,6 +14,8 @@ llm-gateway run <configPath>
 | `--address` | (from config) | listen address, overrides `listen` in config |
 | `--zrok` | `false` | enable zrok sharing, overrides `zrok.share.enabled` |
 | `--zrok-mode` | (from config) | zrok share mode (`public` or `private`), overrides `zrok.share.mode` |
+| `--network` | (from config) | network shortcut; `agora` enables `agora.enabled` |
+| `--agora-integration-file` | (from config/env) | path to an Agora integration file |
 
 CLI flags override config file values. For example, `--address :9090` will override whatever `listen` is set to in the YAML.
 
@@ -46,6 +48,16 @@ zrok:                     # optional: expose the gateway via zrok
     mode: private         # public or private (default: private)
     token: ""             # existing persistent share token (private only)
 
+agora:                    # optional: publish, serve, or connect over Agora
+  enabled: false
+  api_endpoint: ""
+  env_root: ""
+  advertisement:
+    publish: true
+    workgroup_ids: []
+  serve:
+    enabled: false
+
 providers:                # backend provider configs
   open_ai: ...
   anthropic: ...
@@ -62,6 +74,33 @@ routing:                  # optional: semantic routing
   ...                     # see docs/semantic-routing.md
 ```
 
+## Agora Configuration
+
+Agora support is optional and additive. Enabling `agora:` does not disable the normal HTTP listener, zrok sharing, or direct provider URLs. The gateway can publish an Agora catalog advertisement, serve its API over an Agora Layer 1 tunnel, and connect to providers through Agora services. See [docs/agora.md](agora.md) for the full reference.
+
+```yaml
+agora:
+  enabled: true
+  integration_file: ""              # optional partial agora config file
+  api_endpoint: "http://127.0.0.1:8080"
+  env_root: ""                      # optional Agora environment root
+  instance_name: "engineering"      # default: llm-gateway
+  description: "Engineering gateway"
+  tunnel_mode: tcp                  # tcp, http, or udp
+  advertisement:
+    publish: true                   # default true
+    workgroup_ids:
+      - wg_abcdefghijkl
+    contract_id: ""
+    capabilities: []                # derived when empty
+  serve:
+    enabled: false
+    backend_target: ""
+    grants: []
+```
+
+`api_endpoint` is required when Agora is enabled and must match the enrolled Agora environment. Integration-file precedence is: `--agora-integration-file` flag, then `AGORA_LLM_GATEWAY_INTEGRATION_FILE`, then `agora.integration_file`.
+
 ## Provider Configuration
 
 Each provider block is optional. Only configured providers are available for routing. A provider needs at minimum its required credentials (API key for OpenAI/Anthropic) to be initialized.
@@ -74,6 +113,7 @@ providers:
     api_key: "${OPENAI_API_KEY}"      # required
     base_url: "https://api.openai.com" # optional: override for Azure or proxies
     zrok_share_token: ""               # optional: reach the API through a zrok share
+    agora_service: ""                  # optional: reach the API through an Agora service
 ```
 
 If `base_url` is omitted, it defaults to `https://api.openai.com`. Setting `base_url` lets you point at Azure OpenAI, a local proxy, or any OpenAI-compatible API.
@@ -86,6 +126,7 @@ providers:
     api_key: "${ANTHROPIC_API_KEY}"      # required
     base_url: "https://api.anthropic.com" # optional: override base URL
     zrok_share_token: ""                  # optional: reach the API through a zrok share
+    agora_service: ""                     # optional: reach the API through an Agora service
 ```
 
 If `base_url` is omitted, it defaults to `https://api.anthropic.com`.
@@ -99,6 +140,7 @@ providers:
   local:
     base_url: "http://localhost:11434"  # optional (default: http://localhost:11434)
     zrok_share_token: ""                # optional: reach the backend through a zrok share
+    agora_service: ""                   # optional: reach the backend through an Agora service
 ```
 
 ### Local Backend (Multi-Endpoint)
@@ -116,14 +158,16 @@ providers:
         base_url: "http://10.0.0.2:11434"
       - name: remote
         zrok_share_token: "abc123"
+      - name: agora-remote
+        agora_service: "gpu-service"
     health_check:
       interval_seconds: 30   # default: 30
       timeout_seconds: 5     # default: 5
 ```
 
-### Connecting Providers via Zrok
+### Connecting Providers via Overlay Transports
 
-Any provider can be reached through a zrok share instead of (or alongside) a direct URL. Set `zrok_share_token` on the provider config. The gateway creates a zrok access object that provides an HTTP client routing through the zrok overlay network. See [docs/zrok.md](zrok.md) for details.
+Any provider can be reached through a zrok share or an Agora service instead of a direct URL. Set `zrok_share_token` for zrok or `agora_service` for Agora. Do not set both on the same provider or endpoint. See [docs/zrok.md](zrok.md) and [docs/agora.md](agora.md) for details.
 
 ## Metrics Configuration
 
@@ -150,14 +194,17 @@ This is useful for debugging semantic routing decisions -- it shows exactly what
 
 1. Load and parse the YAML config file
 2. Apply CLI flag overrides
-3. Initialize providers (OpenAI, Anthropic, local/self-hosted) in order
-4. Create the model-to-provider router
-5. Initialize OpenTelemetry metrics (if enabled)
-6. Initialize the semantic router (if configured)
-7. Start the HTTP server (local or via zrok share)
-8. Wait for SIGINT or SIGTERM, then shut down gracefully
+3. Resolve Agora integration-file values, if Agora is enabled
+4. Initialize Agora provider connects, if configured
+5. Initialize providers (OpenAI, Anthropic, local/self-hosted) in order
+6. Create the model-to-provider router
+7. Initialize OpenTelemetry metrics (if enabled)
+8. Initialize the semantic router (if configured)
+9. Start the local HTTP server
+10. Start the zrok share listener and Agora serve, if configured
+11. Wait for SIGINT or SIGTERM, then shut down gracefully
 
-On shutdown, the gateway closes all providers, deletes ephemeral zrok shares, and releases zrok access objects.
+On shutdown, the gateway closes all providers, deletes ephemeral zrok shares, releases zrok access objects, and removes Agora advertisement, serve, and connect resources.
 
 ## Full Example
 
@@ -177,6 +224,8 @@ providers:
         base_url: "http://localhost:11434"
       - name: remote
         zrok_share_token: "abc123"
+      - name: agora-remote
+        agora_service: "gpu-service"
 
 metrics:
   enabled: true

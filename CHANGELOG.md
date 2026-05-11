@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## Unreleased
+
+ADD: Agora integration for catalog advertisements, gateway serving over Agora Layer 1 tunnels, and provider connects through Agora services.
+
+ADD: `--network=agora`, `--agora-integration-file`, and `AGORA_LLM_GATEWAY_INTEGRATION_FILE` support for Agora deployments.
+
+CHANGE: zrok sharing and Agora serving are additive to the local HTTP listener.
+
 ## v0.1.4
 
 CHANGE: Removed specificity in docs and implementation tying local instances to Ollama; we really support any local OpenAI-compatible inference. Works with Ollama, llama-server, vLLM, SGLang, or anything that exposes `/v1/chat/completions`.

@@ -7,9 +7,11 @@ The gateway uses [zrok](https://zrok.io) in two independent ways:
 
 Both use zrok's overlay network built on [OpenZiti](https://openziti.io). The machine running the gateway must have a zrok environment enabled (`zrok enable`).
 
+zrok is additive. Enabling a zrok share does not disable the gateway's local HTTP listener, and provider-level zrok access can coexist with direct or Agora-backed providers elsewhere in the config.
+
 ## Sharing the Gateway
 
-Instead of listening on a TCP port, the gateway can serve traffic through a zrok share. Clients connect to the share token rather than an IP address.
+In addition to its local TCP listener, the gateway can serve traffic through a zrok share. Clients connect to the share token rather than an IP address.
 
 ### Ephemeral Shares
 
@@ -51,10 +53,10 @@ Persistent shares are always private. The gateway connects a listener to the exi
 
 ### How It Works
 
-When sharing is enabled, the gateway replaces its normal TCP listener with a zrok listener. The HTTP server's `Serve()` method receives connections from the overlay network instead of from a local socket. From the handler's perspective, nothing changes -- it still receives `http.Request` objects and writes `http.Response` objects.
+When sharing is enabled, the gateway starts a zrok listener alongside the normal TCP listener. The same HTTP handler serves both listeners, so request handling is identical regardless of which transport delivered the connection.
 
 On shutdown (SIGINT/SIGTERM), the gateway:
-1. Gracefully drains the HTTP server
+1. Gracefully drains the HTTP servers
 2. Closes the zrok listener
 3. Deletes the share (ephemeral only)
 
@@ -95,6 +97,8 @@ providers:
 ```
 
 Each endpoint with a `zrok_share_token` gets its own zrok access and HTTP client. The round-robin load balancer uses whichever transport (direct or zrok) is configured per endpoint.
+
+Do not set `zrok_share_token` and `agora_service` on the same provider or endpoint. If you need Agora transport instead of zrok, see [Agora Integration](agora.md).
 
 ### Embedding and Classifier Providers
 

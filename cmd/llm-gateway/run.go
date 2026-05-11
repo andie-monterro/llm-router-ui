@@ -1,16 +1,21 @@
 package main
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/michaelquigley/df/dl"
 	"github.com/openziti/llm-gateway/gateway"
 	"github.com/spf13/cobra"
 )
 
 type runCommand struct {
-	cmd      *cobra.Command
-	address  string
-	zrok     bool
-	zrokMode string
+	cmd                  *cobra.Command
+	address              string
+	zrok                 bool
+	zrokMode             string
+	network              string
+	agoraIntegrationFile string
 }
 
 func newRunCommand() *runCommand {
@@ -24,6 +29,8 @@ func newRunCommand() *runCommand {
 	rc.cmd.Flags().StringVar(&rc.address, "address", "", "listen address (overrides config)")
 	rc.cmd.Flags().BoolVar(&rc.zrok, "zrok", false, "enable zrok sharing (overrides config)")
 	rc.cmd.Flags().StringVar(&rc.zrokMode, "zrok-mode", "", "zrok share mode: public, private (overrides config)")
+	rc.cmd.Flags().StringVar(&rc.network, "network", "", "network shortcut: zrok or agora")
+	rc.cmd.Flags().StringVar(&rc.agoraIntegrationFile, "agora-integration-file", "", "path to Agora integration file (overrides config)")
 	return rc
 }
 
@@ -35,7 +42,22 @@ func (rc *runCommand) run(_ *cobra.Command, args []string) error {
 	}
 	dl.Infof("loaded config '%s'", configPath)
 
-	// apply CLI overrides
+	if err := rc.applyOverrides(cfg); err != nil {
+		return err
+	}
+
+	gw, err := gateway.New(cfg)
+	if err != nil {
+		return err
+	}
+	return gw.Run()
+}
+
+func (rc *runCommand) applyOverrides(cfg *gateway.Config) error {
+	if rc.network != "" && rc.network != "zrok" && rc.network != "agora" {
+		return fmt.Errorf("invalid --network value '%s' (expected 'zrok' or 'agora')", rc.network)
+	}
+
 	if rc.address != "" {
 		cfg.Listen = rc.address
 	}
@@ -57,10 +79,23 @@ func (rc *runCommand) run(_ *cobra.Command, args []string) error {
 		}
 		cfg.Zrok.Share.Mode = rc.zrokMode
 	}
-
-	gw, err := gateway.New(cfg)
-	if err != nil {
-		return err
+	if rc.network == "agora" {
+		if cfg.Agora == nil {
+			cfg.Agora = &gateway.AgoraConfig{}
+		}
+		cfg.Agora.Enabled = true
 	}
-	return gw.Run()
+
+	agoraIntegrationFile := rc.agoraIntegrationFile
+	if agoraIntegrationFile == "" {
+		agoraIntegrationFile = os.Getenv("AGORA_LLM_GATEWAY_INTEGRATION_FILE")
+	}
+	if agoraIntegrationFile != "" {
+		if cfg.Agora == nil {
+			cfg.Agora = &gateway.AgoraConfig{}
+		}
+		cfg.Agora.IntegrationFile = agoraIntegrationFile
+	}
+
+	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -16,16 +17,17 @@ import (
 )
 
 type Gateway struct {
-	cfg              *Config
-	providers        map[providers.ProviderType]providers.Provider
-	router           *providers.Router
-	semanticRouter   *routing.SemanticRouter
-	keyStore         *KeyStore
-	share            *Share
-	accesses         []*Access
+	cfg             *Config
+	providers       map[providers.ProviderType]providers.Provider
+	router          *providers.Router
+	semanticRouter  *routing.SemanticRouter
+	keyStore        *KeyStore
+	share           *Share
+	agora           *agoraSubsystem
+	accesses        []*Access
 	localHTTPClient *http.Client
-	meters           *meters
-	metricsHandler   http.Handler
+	meters          *meters
+	metricsHandler  http.Handler
 }
 
 func New(cfg *Config) (_ *Gateway, err error) {
@@ -38,6 +40,20 @@ func New(cfg *Config) (_ *Gateway, err error) {
 			g.cleanup()
 		}
 	}()
+
+	if err = resolveAgoraConfig(cfg); err != nil {
+		return nil, err
+	}
+
+	if cfg.Agora != nil && cfg.Agora.Enabled {
+		g.agora, err = newAgoraSubsystem(cfg)
+		if err != nil {
+			return nil, err
+		}
+		if err = g.agora.BootstrapConnects(context.Background()); err != nil {
+			return nil, err
+		}
+	}
 
 	if err = g.initProviders(); err != nil {
 		return nil, err
@@ -81,7 +97,15 @@ func (g *Gateway) initProviders() error {
 		apiKey := os.ExpandEnv(g.cfg.Providers.OpenAI.APIKey)
 		baseURL := os.ExpandEnv(g.cfg.Providers.OpenAI.BaseURL)
 
-		if g.cfg.Providers.OpenAI.ZrokShareToken != "" {
+		if g.cfg.Providers.OpenAI.AgoraService != "" {
+			baseURL, ok := g.agoraBaseURL("openai")
+			if !ok {
+				return fmt.Errorf("agora connect address for openai provider was not initialized")
+			}
+			g.cfg.Providers.OpenAI.BaseURL = baseURL
+			g.providers[providers.ProviderOpenAI] = providers.NewOpenAI(apiKey, baseURL)
+			dl.Infof("initialized openai provider via agora service '%s' at '%s'", g.cfg.Providers.OpenAI.AgoraService, baseURL)
+		} else if g.cfg.Providers.OpenAI.ZrokShareToken != "" {
 			access, err := NewAccess(g.cfg.Providers.OpenAI.ZrokShareToken)
 			if err != nil {
 				return err
@@ -104,7 +128,15 @@ func (g *Gateway) initProviders() error {
 		apiKey := os.ExpandEnv(g.cfg.Providers.Anthropic.APIKey)
 		baseURL := os.ExpandEnv(g.cfg.Providers.Anthropic.BaseURL)
 
-		if g.cfg.Providers.Anthropic.ZrokShareToken != "" {
+		if g.cfg.Providers.Anthropic.AgoraService != "" {
+			baseURL, ok := g.agoraBaseURL("anthropic")
+			if !ok {
+				return fmt.Errorf("agora connect address for anthropic provider was not initialized")
+			}
+			g.cfg.Providers.Anthropic.BaseURL = baseURL
+			g.providers[providers.ProviderAnthropic] = providers.NewAnthropic(apiKey, baseURL)
+			dl.Infof("initialized anthropic provider via agora service '%s' at '%s'", g.cfg.Providers.Anthropic.AgoraService, baseURL)
+		} else if g.cfg.Providers.Anthropic.ZrokShareToken != "" {
 			access, err := NewAccess(g.cfg.Providers.Anthropic.ZrokShareToken)
 			if err != nil {
 				return err
@@ -129,20 +161,40 @@ func (g *Gateway) initProviders() error {
 				return err
 			}
 		} else {
-			g.initLocalSingle()
+			if err := g.initLocalSingle(); err != nil {
+				return err
+			}
 		}
 	}
 
 	return nil
 }
 
-func (g *Gateway) initLocalSingle() {
+func (g *Gateway) agoraBaseURL(key string) (string, bool) {
+	if g.agora == nil {
+		return "", false
+	}
+	address, ok := g.agora.ConnectAddress(key)
+	if !ok {
+		return "", false
+	}
+	return "http://" + address, true
+}
+
+func (g *Gateway) initLocalSingle() error {
 	cfg := g.cfg.Providers.Local
-	if cfg.ZrokShareToken != "" {
+	if cfg.AgoraService != "" {
+		baseURL, ok := g.agoraBaseURL("local")
+		if !ok {
+			return fmt.Errorf("agora connect address for local provider was not initialized")
+		}
+		cfg.BaseURL = baseURL
+		g.providers[providers.ProviderLocal] = providers.NewLocal(baseURL)
+		dl.Infof("initialized local provider via agora service '%s' at '%s'", cfg.AgoraService, baseURL)
+	} else if cfg.ZrokShareToken != "" {
 		access, err := NewAccess(cfg.ZrokShareToken)
 		if err != nil {
-			dl.Errorf("failed to create zrok access for local provider: %v", err)
-			return
+			return fmt.Errorf("failed to create zrok access for local provider: %w", err)
 		}
 		g.accesses = append(g.accesses, access)
 		g.localHTTPClient = access.HTTPClient()
@@ -152,6 +204,7 @@ func (g *Gateway) initLocalSingle() {
 		g.providers[providers.ProviderLocal] = providers.NewLocal(cfg.BaseURL)
 		dl.Infof("initialized local provider at '%s'", cfg.BaseURL)
 	}
+	return nil
 }
 
 func (g *Gateway) initLocalMulti() error {
@@ -164,7 +217,13 @@ func (g *Gateway) initLocalMulti() error {
 			BaseURL: ep.BaseURL,
 			Weight:  ep.Weight,
 		}
-		if ep.ZrokShareToken != "" {
+		if ep.AgoraService != "" {
+			baseURL, ok := g.agoraBaseURL("local:" + ep.Name)
+			if !ok {
+				return fmt.Errorf("agora connect address for local endpoint '%s' was not initialized", ep.Name)
+			}
+			opt.BaseURL = baseURL
+		} else if ep.ZrokShareToken != "" {
 			access, err := NewAccess(ep.ZrokShareToken)
 			if err != nil {
 				return fmt.Errorf("failed to create zrok access for endpoint '%s': %w", ep.Name, err)
@@ -193,7 +252,10 @@ func (g *Gateway) initLocalMulti() error {
 	g.providers[providers.ProviderLocal] = multi
 
 	for _, ep := range cfg.Endpoints {
-		if ep.ZrokShareToken != "" {
+		if ep.AgoraService != "" {
+			baseURL, _ := g.agoraBaseURL("local:" + ep.Name)
+			dl.Infof("initialized local endpoint '%s' via agora service '%s' at '%s'", ep.Name, ep.AgoraService, baseURL)
+		} else if ep.ZrokShareToken != "" {
 			dl.Infof("initialized local endpoint '%s' via zrok share '%s'", ep.Name, ep.ZrokShareToken)
 		} else {
 			dl.Infof("initialized local endpoint '%s' at '%s'", ep.Name, ep.BaseURL)
@@ -221,41 +283,66 @@ func (g *Gateway) Run() error {
 		cancel()
 	}()
 
+	errCh := make(chan error, 3)
+	var servers []*http.Server
+
+	localServer, agoraBackendTarget, err := g.startLocalServer(handler, errCh)
+	if err != nil {
+		return err
+	}
+	servers = append(servers, localServer)
+
 	if g.cfg.Zrok != nil && g.cfg.Zrok.Share != nil && g.cfg.Zrok.Share.Enabled {
-		return g.runWithZrok(ctx, handler)
+		zrokServer, err := g.startZrokServer(handler, errCh)
+		if err != nil {
+			shutdownServers(servers)
+			return err
+		}
+		servers = append(servers, zrokServer)
 	}
 
-	return g.runLocal(ctx, handler)
-}
-
-func (g *Gateway) runLocal(ctx context.Context, handler http.Handler) error {
-	addr := g.cfg.Listen
-	if addr == "" {
-		addr = ":8080"
+	if g.agora != nil {
+		if err := g.agora.StartServing(ctx, agoraBackendTarget); err != nil {
+			shutdownServers(servers)
+			return err
+		}
 	}
-
-	server := &http.Server{
-		Addr:    addr,
-		Handler: handler,
-	}
-
-	dl.Infof("listening on '%s'", addr)
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- server.ListenAndServe()
-	}()
 
 	select {
 	case <-ctx.Done():
 		dl.Info("shutting down server")
-		return server.Shutdown(context.Background())
+		shutdownServers(servers)
+		return nil
 	case err := <-errCh:
+		cancel()
+		shutdownServers(servers)
 		return err
 	}
 }
 
-func (g *Gateway) runWithZrok(ctx context.Context, handler http.Handler) error {
+func (g *Gateway) startLocalServer(handler http.Handler, errCh chan<- error) (*http.Server, string, error) {
+	addr := listenAddress(g.cfg)
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, "", err
+	}
+
+	server := &http.Server{
+		Handler: handler,
+	}
+
+	dl.Infof("listening on '%s'", listener.Addr().String())
+
+	go func() {
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+			errCh <- err
+		}
+	}()
+
+	return server, agoraBackendTarget(addr, listener.Addr().String()), nil
+}
+
+func (g *Gateway) startZrokServer(handler http.Handler, errCh chan<- error) (*http.Server, error) {
 	var share *Share
 	var err error
 
@@ -267,7 +354,7 @@ func (g *Gateway) runWithZrok(ctx context.Context, handler http.Handler) error {
 	}
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 	g.share = share
 
@@ -277,19 +364,32 @@ func (g *Gateway) runWithZrok(ctx context.Context, handler http.Handler) error {
 		Handler: handler,
 	}
 
-	errCh := make(chan error, 1)
 	go func() {
-		errCh <- server.Serve(share.Listener())
+		if err := server.Serve(share.Listener()); err != nil && err != http.ErrServerClosed {
+			errCh <- err
+		}
 	}()
 
-	select {
-	case <-ctx.Done():
-		dl.Info("shutting down server")
-		server.Shutdown(context.Background())
-		return nil
-	case err := <-errCh:
-		return err
+	return server, nil
+}
+
+func shutdownServers(servers []*http.Server) {
+	for _, server := range servers {
+		if err := server.Shutdown(context.Background()); err != nil {
+			dl.Errorf("error shutting down server: %v", err)
+		}
 	}
+}
+
+func agoraBackendTarget(configured, actual string) string {
+	if configured == "" {
+		configured = ":8080"
+	}
+	_, port, err := net.SplitHostPort(configured)
+	if err == nil && port == "0" {
+		return actual
+	}
+	return configured
 }
 
 func (g *Gateway) cleanup() {
@@ -303,6 +403,9 @@ func (g *Gateway) cleanup() {
 	}
 	for _, access := range g.accesses {
 		access.Close()
+	}
+	if g.agora != nil {
+		g.agora.Close()
 	}
 }
 
