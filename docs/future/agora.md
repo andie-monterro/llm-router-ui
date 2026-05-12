@@ -89,7 +89,7 @@ agora:
                                 # falls through to AGORA_ENV_ROOT, then ~/.agora
 
   # identity: the gateway's name and description, used everywhere
-  # (advertisement name, serve service name, log scoping).
+  # (advertisement name, serve tunnel name, log scoping).
   instance_name: ""             # defaults to "llm-gateway"
   description: ""               # defaults to "OpenAI-compatible LLM gateway"
 
@@ -121,15 +121,15 @@ providers:
   open_ai:
     api_key: "${OPENAI_API_KEY}"
     # zrok_share_token: ""      # existing: reach OpenAI via zrok share
-    agora_service: ""           # new: reach OpenAI via an Agora Layer 1 service
+    agora_tunnel: ""           # new: reach OpenAI via an Agora Layer 1 tunnel
   anthropic:
     api_key: "${ANTHROPIC_API_KEY}"
-    agora_service: ""
+    agora_tunnel: ""
   local:
     base_url: "http://localhost:11434"
-    agora_service: ""
+    agora_tunnel: ""
     # endpoints: [...]          # multi-endpoint mode: each endpoint can
-                                # also set zrok_share_token or agora_service
+                                # also set zrok_share_token or agora_tunnel
 ```
 
 Field-by-field semantics follow.
@@ -167,7 +167,7 @@ back to `AGORA_ENV_ROOT` env var, then `~/.agora`.
 The gateway's identity on the Agora network. Used as:
 
 - the advertisement name (published in the catalog)
-- the serve's service name (when `serve.enabled: true`)
+- the serve's tunnel name (when `serve.enabled: true`)
 - the log scope tag (`instance=<instance_name>` in dl output)
 - the SDK agent name (`agent.NewStandalone(Name: "llm-gateway-<instance_name>", ...)`)
 
@@ -223,8 +223,8 @@ replaces the derived list entirely. See [§ Capability derivation](#capability-d
 ### `serve.enabled`
 
 When true, the gateway calls `tunnel.EnsureServed` on startup to host
-its HTTP API as an Agora Layer 1 service. Clients on the Agora
-network can dial the service name (the gateway's `instance_name`) and
+its HTTP API as an Agora Layer 1 tunnel. Clients on the Agora
+network can dial the tunnel name (the gateway's `instance_name`) and
 reach the gateway through the fabric.
 
 The gateway's local HTTP listener (governed by top-level `listen`)
@@ -252,10 +252,10 @@ leave this list empty and provision grants entirely via CLI.
 When the SDK adds grant reconciliation, this field's semantics
 strengthen to full set-assertion without any gateway-side change.
 
-### `providers.<name>.agora_service`
+### `providers.<name>.agora_tunnel`
 
-Per-provider field. When set to a non-empty service name, the
-gateway calls `tunnel.EnsureConnected` for that service before
+Per-provider field. When set to a non-empty tunnel name, the
+gateway calls `tunnel.EnsureConnected` for that tunnel before
 initializing the provider, and uses the resolved local listen
 address as the provider's `base_url` (or as the dial target for
 HTTP, depending on the provider).
@@ -278,7 +278,7 @@ the gateway propagates it.
 
 | Concept    | Source field          | Used by                                    |
 | ---------- | --------------------- | ------------------------------------------ |
-| Identity   | `instance_name`       | advertisement name, serve service name     |
+| Identity   | `instance_name`       | advertisement name, serve tunnel name     |
 | Description| `description`         | advertisement description, log scope       |
 | Mode       | `tunnel_mode`         | advertisement tunnel_mode, serve mode      |
 
@@ -443,9 +443,9 @@ The agora subsystem owns an `*agent.Agent` constructed via
 Lifecycle is gateway-driven, not SDK-driven:
 
 ```
-init   -> agent.NewStandalone(WithRuntime: serve.enabled || any provider has agora_service)
+init   -> agent.NewStandalone(WithRuntime: serve.enabled || any provider has agora_tunnel)
         -> agent.StartRuntime(ctx)   // when WithRuntime
-ready  -> for each provider with agora_service:
+ready  -> for each provider with agora_tunnel:
             tunnel.EnsureConnected(ctx, agent, ConnectSpec{...})
             <- yields a local listen address; pass to provider init
         -> if serve.enabled:

@@ -80,20 +80,20 @@ type OpenAIConfig struct {
 	APIKey         string
 	BaseURL        string
 	ZrokShareToken string
-	AgoraService   string
+	AgoraTunnel    string
 }
 
 type AnthropicConfig struct {
 	APIKey         string
 	BaseURL        string
 	ZrokShareToken string
-	AgoraService   string
+	AgoraTunnel    string
 }
 
 type LocalConfig struct {
 	BaseURL        string
 	ZrokShareToken string
-	AgoraService   string
+	AgoraTunnel    string
 	Endpoints      []LocalEndpointConfig
 	HealthCheck    *HealthCheckConfig
 }
@@ -102,7 +102,7 @@ type LocalEndpointConfig struct {
 	Name           string
 	BaseURL        string
 	ZrokShareToken string
-	AgoraService   string
+	AgoraTunnel    string
 	Weight         int
 }
 

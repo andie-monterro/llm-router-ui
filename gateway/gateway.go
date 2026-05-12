@@ -97,14 +97,14 @@ func (g *Gateway) initProviders() error {
 		apiKey := os.ExpandEnv(g.cfg.Providers.OpenAI.APIKey)
 		baseURL := os.ExpandEnv(g.cfg.Providers.OpenAI.BaseURL)
 
-		if g.cfg.Providers.OpenAI.AgoraService != "" {
+		if g.cfg.Providers.OpenAI.AgoraTunnel != "" {
 			baseURL, ok := g.agoraBaseURL("openai")
 			if !ok {
 				return fmt.Errorf("agora connect address for openai provider was not initialized")
 			}
 			g.cfg.Providers.OpenAI.BaseURL = baseURL
 			g.providers[providers.ProviderOpenAI] = providers.NewOpenAI(apiKey, baseURL)
-			dl.Infof("initialized openai provider via agora service '%s' at '%s'", g.cfg.Providers.OpenAI.AgoraService, baseURL)
+			dl.Infof("initialized openai provider via agora tunnel '%s' at '%s'", g.cfg.Providers.OpenAI.AgoraTunnel, baseURL)
 		} else if g.cfg.Providers.OpenAI.ZrokShareToken != "" {
 			access, err := NewAccess(g.cfg.Providers.OpenAI.ZrokShareToken)
 			if err != nil {
@@ -128,14 +128,14 @@ func (g *Gateway) initProviders() error {
 		apiKey := os.ExpandEnv(g.cfg.Providers.Anthropic.APIKey)
 		baseURL := os.ExpandEnv(g.cfg.Providers.Anthropic.BaseURL)
 
-		if g.cfg.Providers.Anthropic.AgoraService != "" {
+		if g.cfg.Providers.Anthropic.AgoraTunnel != "" {
 			baseURL, ok := g.agoraBaseURL("anthropic")
 			if !ok {
 				return fmt.Errorf("agora connect address for anthropic provider was not initialized")
 			}
 			g.cfg.Providers.Anthropic.BaseURL = baseURL
 			g.providers[providers.ProviderAnthropic] = providers.NewAnthropic(apiKey, baseURL)
-			dl.Infof("initialized anthropic provider via agora service '%s' at '%s'", g.cfg.Providers.Anthropic.AgoraService, baseURL)
+			dl.Infof("initialized anthropic provider via agora tunnel '%s' at '%s'", g.cfg.Providers.Anthropic.AgoraTunnel, baseURL)
 		} else if g.cfg.Providers.Anthropic.ZrokShareToken != "" {
 			access, err := NewAccess(g.cfg.Providers.Anthropic.ZrokShareToken)
 			if err != nil {
@@ -183,14 +183,14 @@ func (g *Gateway) agoraBaseURL(key string) (string, bool) {
 
 func (g *Gateway) initLocalSingle() error {
 	cfg := g.cfg.Providers.Local
-	if cfg.AgoraService != "" {
+	if cfg.AgoraTunnel != "" {
 		baseURL, ok := g.agoraBaseURL("local")
 		if !ok {
 			return fmt.Errorf("agora connect address for local provider was not initialized")
 		}
 		cfg.BaseURL = baseURL
 		g.providers[providers.ProviderLocal] = providers.NewLocal(baseURL)
-		dl.Infof("initialized local provider via agora service '%s' at '%s'", cfg.AgoraService, baseURL)
+		dl.Infof("initialized local provider via agora tunnel '%s' at '%s'", cfg.AgoraTunnel, baseURL)
 	} else if cfg.ZrokShareToken != "" {
 		access, err := NewAccess(cfg.ZrokShareToken)
 		if err != nil {
@@ -217,7 +217,7 @@ func (g *Gateway) initLocalMulti() error {
 			BaseURL: ep.BaseURL,
 			Weight:  ep.Weight,
 		}
-		if ep.AgoraService != "" {
+		if ep.AgoraTunnel != "" {
 			baseURL, ok := g.agoraBaseURL("local:" + ep.Name)
 			if !ok {
 				return fmt.Errorf("agora connect address for local endpoint '%s' was not initialized", ep.Name)
@@ -252,9 +252,9 @@ func (g *Gateway) initLocalMulti() error {
 	g.providers[providers.ProviderLocal] = multi
 
 	for _, ep := range cfg.Endpoints {
-		if ep.AgoraService != "" {
+		if ep.AgoraTunnel != "" {
 			baseURL, _ := g.agoraBaseURL("local:" + ep.Name)
-			dl.Infof("initialized local endpoint '%s' via agora service '%s' at '%s'", ep.Name, ep.AgoraService, baseURL)
+			dl.Infof("initialized local endpoint '%s' via agora tunnel '%s' at '%s'", ep.Name, ep.AgoraTunnel, baseURL)
 		} else if ep.ZrokShareToken != "" {
 			dl.Infof("initialized local endpoint '%s' via zrok share '%s'", ep.Name, ep.ZrokShareToken)
 		} else {

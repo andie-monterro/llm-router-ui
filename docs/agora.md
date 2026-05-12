@@ -10,7 +10,7 @@ Agora is used in three independent ways:
 1. Publish a catalog advertisement so other Agora agents can discover
    the gateway.
 2. Serve the gateway API over an Agora Layer 1 tunnel.
-3. Connect to upstream providers through Agora Layer 1 services.
+3. Connect to upstream providers through Agora Layer 1 tunnels.
 
 ## Prerequisites
 
@@ -59,14 +59,14 @@ Provider blocks can opt into Agora per provider:
 providers:
   open_ai:
     api_key: "${OPENAI_API_KEY}"
-    agora_service: "openai-relay"
+    agora_tunnel: "openai-relay"
 
   anthropic:
     api_key: "${ANTHROPIC_API_KEY}"
-    agora_service: "anthropic-relay"
+    agora_tunnel: "anthropic-relay"
 
   local:
-    agora_service: "local-llm"
+    agora_tunnel: "local-llm"
 ```
 
 For local multi-endpoint mode, each endpoint chooses its own
@@ -79,12 +79,12 @@ providers:
       - name: local-gpu
         base_url: "http://localhost:11434"
       - name: remote-gpu
-        agora_service: "remote-gpu-service"
+        agora_tunnel: "remote-gpu-tunnel"
       - name: zrok-gpu
         zrok_share_token: "abc123"
 ```
 
-Do not set `agora_service` and `zrok_share_token` on the same
+Do not set `agora_tunnel` and `zrok_share_token` on the same
 provider or endpoint. Startup fails because the transport would be
 ambiguous.
 
@@ -182,8 +182,8 @@ revocation.
 
 ## Connecting Providers Over Agora
 
-When a provider or endpoint sets `agora_service`, startup creates an
-Agora connect for that service before provider initialization. The
+When a provider or endpoint sets `agora_tunnel`, startup creates an
+Agora connect for that tunnel before provider initialization. The
 provider then talks to a local loopback address, and Agora forwards
 the traffic across the fabric.
 
@@ -191,10 +191,10 @@ Provider keys used internally:
 
 | Config location | Agora connect key |
 |---|---|
-| `providers.open_ai.agora_service` | `openai` |
-| `providers.anthropic.agora_service` | `anthropic` |
-| `providers.local.agora_service` | `local` |
-| `providers.local.endpoints[].agora_service` | `local:<endpoint name>` |
+| `providers.open_ai.agora_tunnel` | `openai` |
+| `providers.anthropic.agora_tunnel` | `anthropic` |
+| `providers.local.agora_tunnel` | `local` |
+| `providers.local.endpoints[].agora_tunnel` | `local:<endpoint name>` |
 
 The local multi-endpoint provider can mix direct HTTP, zrok, and
 Agora endpoints in one weighted round-robin pool.

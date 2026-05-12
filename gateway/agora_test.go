@@ -106,7 +106,7 @@ func TestAgoraSubsystemBootstrapConnects(t *testing.T) {
 	cfg := baseAgoraTestConfig()
 	cfg.Agora.Advertisement.Publish = boolPtr(false)
 	cfg.Providers = &ProvidersConfig{
-		OpenAI: &OpenAIConfig{APIKey: "sk-test", AgoraService: "openai-relay"},
+		OpenAI: &OpenAIConfig{APIKey: "sk-test", AgoraTunnel: "openai-relay"},
 	}
 
 	subsystem, err := newAgoraSubsystemWithOps(cfg, ops)
@@ -167,7 +167,7 @@ func TestAgoraSubsystemCloseOrder(t *testing.T) {
 	cfg := baseAgoraTestConfig()
 	cfg.Agora.Serve = &AgoraServeConfig{Enabled: true, BackendTarget: "127.0.0.1:8080"}
 	cfg.Providers = &ProvidersConfig{
-		OpenAI: &OpenAIConfig{APIKey: "sk-test", AgoraService: "openai-relay"},
+		OpenAI: &OpenAIConfig{APIKey: "sk-test", AgoraTunnel: "openai-relay"},
 	}
 
 	subsystem, err := newAgoraSubsystemWithOps(cfg, ops)
@@ -209,7 +209,7 @@ func TestAgoraConnectFailureCleansUp(t *testing.T) {
 	cfg := baseAgoraTestConfig()
 	cfg.Agora.Advertisement.Publish = boolPtr(false)
 	cfg.Providers = &ProvidersConfig{
-		OpenAI: &OpenAIConfig{APIKey: "sk-test", AgoraService: "openai-relay"},
+		OpenAI: &OpenAIConfig{APIKey: "sk-test", AgoraTunnel: "openai-relay"},
 	}
 
 	subsystem, err := newAgoraSubsystemWithOps(cfg, ops)

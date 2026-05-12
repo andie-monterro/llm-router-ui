@@ -98,7 +98,7 @@ providers:
 
 Each endpoint with a `zrok_share_token` gets its own zrok access and HTTP client. The round-robin load balancer uses whichever transport (direct or zrok) is configured per endpoint.
 
-Do not set `zrok_share_token` and `agora_service` on the same provider or endpoint. If you need Agora transport instead of zrok, see [Agora Integration](agora.md).
+Do not set `zrok_share_token` and `agora_tunnel` on the same provider or endpoint. If you need Agora transport instead of zrok, see [Agora Integration](agora.md).
 
 ### Embedding and Classifier Providers
 

@@ -41,9 +41,9 @@ Each provider can use direct HTTP, zrok, or Agora:
 |---|---|
 | `base_url` | Direct HTTP target for the provider API |
 | `zrok_share_token` | Routes the provider through a zrok share |
-| `agora_service` | Creates an Agora connect and routes the provider through the returned local listen address |
+| `agora_tunnel` | Creates an Agora connect and routes the provider through the returned local listen address |
 
-Do not set `zrok_share_token` and `agora_service` on the same provider or endpoint. Multi-endpoint local providers can mix direct, zrok, and Agora endpoints in one pool. See [zrok](zrok.md) and [Agora](agora.md) for transport details.
+Do not set `zrok_share_token` and `agora_tunnel` on the same provider or endpoint. Multi-endpoint local providers can mix direct, zrok, and Agora endpoints in one pool. See [zrok](zrok.md) and [Agora](agora.md) for transport details.
 
 ## OpenAI Provider
 

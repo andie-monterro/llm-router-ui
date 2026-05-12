@@ -3,6 +3,7 @@ package gateway
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/michaelquigley/df/dd"
 )
@@ -41,6 +42,10 @@ func mergeAgoraIntegrationFile(cfg *AgoraConfig, file *AgoraIntegrationFile) {
 }
 
 func resolveAgoraConfig(cfg *Config) error {
+	if err := normalizeProviderAgoraTunnels(cfg); err != nil {
+		return err
+	}
+
 	if cfg == nil || cfg.Agora == nil || !cfg.Agora.Enabled {
 		return nil
 	}
@@ -56,6 +61,32 @@ func resolveAgoraConfig(cfg *Config) error {
 	}
 
 	return nil
+}
+
+func normalizeProviderAgoraTunnels(cfg *Config) error {
+	if cfg == nil || cfg.Providers == nil {
+		return nil
+	}
+
+	if cfg.Providers.OpenAI != nil {
+		cfg.Providers.OpenAI.AgoraTunnel = normalizeProviderAgoraTunnel(cfg.Providers.OpenAI.AgoraTunnel)
+	}
+	if cfg.Providers.Anthropic != nil {
+		cfg.Providers.Anthropic.AgoraTunnel = normalizeProviderAgoraTunnel(cfg.Providers.Anthropic.AgoraTunnel)
+	}
+	if cfg.Providers.Local != nil {
+		cfg.Providers.Local.AgoraTunnel = normalizeProviderAgoraTunnel(cfg.Providers.Local.AgoraTunnel)
+
+		for i := range cfg.Providers.Local.Endpoints {
+			cfg.Providers.Local.Endpoints[i].AgoraTunnel = normalizeProviderAgoraTunnel(cfg.Providers.Local.Endpoints[i].AgoraTunnel)
+		}
+	}
+
+	return nil
+}
+
+func normalizeProviderAgoraTunnel(agoraTunnel string) string {
+	return strings.TrimSpace(os.ExpandEnv(agoraTunnel))
 }
 
 func expandAgoraStrings(cfg *AgoraConfig) {

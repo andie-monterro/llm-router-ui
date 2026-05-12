@@ -150,7 +150,7 @@ type AgoraServeConfig struct {
 
 Add `Agora *AgoraConfig` to the existing `Config` struct.
 
-Add `AgoraService string` to each existing provider config struct
+Add `AgoraTunnel string` to each existing provider config struct
 (OpenAI, Anthropic, Local — and to the per-endpoint config struct
 for multi-endpoint Local).
 
@@ -189,8 +189,8 @@ type AgoraIntegrationAdvertisement struct {
 - `TestLoadConfig_AgoraBlock` asserts a populated `agora:` config
   parses correctly, including the nested `advertisement:` and
   `serve:` sub-blocks.
-- `TestLoadConfig_ProviderAgoraService` asserts
-  `providers.open_ai.agora_service` parses.
+- `TestLoadConfig_ProviderAgoraTunnel` asserts
+  `providers.open_ai.agora_tunnel` parses.
 
 **Depends on.** W1.
 
@@ -342,7 +342,7 @@ Construction (`newAgoraSubsystem`) does:
    `cfg.Agora.Advertisement.Capabilities` is empty.
 3. Decide `wantRuntime`: true if
    `cfg.Agora.Serve != nil && cfg.Agora.Serve.Enabled` OR any
-   provider has a non-empty `agora_service`.
+   provider has a non-empty `agora_tunnel`.
 4. Construct `agent.NewStandalone(StandaloneOptions{
      Name: identity.AgentName,
      Description: identity.Description,
@@ -357,7 +357,7 @@ Construction (`newAgoraSubsystem`) does:
 diagram. Order:
 
 1. `agent.StartRuntime(ctx)` if runtime is wanted.
-2. For each provider with `agora_service`:
+2. For each provider with `agora_tunnel`:
    - `tunnel.EnsureConnected(ctx, agent, ConnectSpec{...})`
    - Store resolved listen address in `s.connects[providerKey]`.
 3. If `cfg.Agora.Serve.Enabled`:
@@ -448,7 +448,7 @@ clears `ServeID` whenever the actor lands in `StateError`.
 
 ### W8 — Per-provider connect plumbing
 
-**Goal.** Each provider with `agora_service` set gets its connect
+**Goal.** Each provider with `agora_tunnel` set gets its connect
 established before provider init runs, and the provider's
 `base_url` is set to the resolved local address.
 
@@ -464,9 +464,9 @@ func (s *agoraSubsystem) runConnects(ctx context.Context, cfg *Config) error
 ```
 
 Walk the provider config. For each provider with a non-empty
-`AgoraService`:
+`AgoraTunnel`:
 
-- Validate: error if both `agora_service` AND `zrok_share_token`
+- Validate: error if both `agora_tunnel` AND `zrok_share_token`
   are set on the same provider/endpoint.
 - **Pre-allocate a free loopback port.** Open
   `net.Listen("tcp", "127.0.0.1:0")`, read back
@@ -478,12 +478,12 @@ Walk the provider config. For each provider with a non-empty
   kernel-assigned port — see the SDK spec's "Kernel-assigned connect
   ports" note. When agora adds `ResolvedListenAddress`, this step
   collapses to a plain `127.0.0.1:0` in the spec.)
-- Build `tunnel.ConnectSpec{Name: agoraService, ListenAddress: "<pre-allocated host:port>"}`.
+- Build `tunnel.ConnectSpec{Name: agoraTunnel, ListenAddress: "<pre-allocated host:port>"}`.
 - Call `tunnel.EnsureConnected`. Store `*tunnel.ConnectStatus` in
   `s.connects[providerKey]` where `providerKey` uniquely identifies
   the provider (or per-endpoint key for multi-endpoint Local). The
   `ConnectStatus` carries the resolved `ListenAddress` (echoed
-  back from the spec) and the agora service `Name` — together
+  back from the spec) and the agora tunnel `Name` — together
   these are the stable identity used for shutdown removal.
 
 On shutdown, for each entry in `s.connects`, call
@@ -508,7 +508,7 @@ providers; `"local:<endpoint-name>"` for per-endpoint.
 **Piece 2 — provider integration**:
 
 Provider init (`initProviders` in the existing gateway code) needs
-to be updated. For each provider/endpoint with `agora_service`:
+to be updated. For each provider/endpoint with `agora_tunnel`:
 
 - After the subsystem's connects are established, fetch
   `s.ConnectAddress(providerKey)`.
@@ -530,15 +530,15 @@ to be updated. For each provider/endpoint with `agora_service`:
 
 **Acceptance.**
 
-- Unit test: provider config with one openai provider + agora_service
+- Unit test: provider config with one openai provider + agora_tunnel
   produces one EnsureConnected call with the right Name and a
   pre-allocated `127.0.0.1:<port>` ListenAddress, captures the
   matching ConnectStatus.
 - Unit test: `allocateLoopbackPort` returns a free, concrete
   `127.0.0.1:<port>` and a nil error in the happy path.
-- Unit test: error when both `agora_service` and `zrok_share_token`
+- Unit test: error when both `agora_tunnel` and `zrok_share_token`
   set on same provider.
-- Provider init test: provider initialized with an agora_service
+- Provider init test: provider initialized with an agora_tunnel
   uses `http://127.0.0.1:<pre-allocated-port>` as base_url.
 
 **Depends on.** W6.
@@ -651,7 +651,7 @@ Update `cmd/llm-gateway/run.go`:
 Add a fully commented-out `agora:` block to `etc/config.yaml` after
 the existing `zrok:` block, matching the comment-density of the
 existing semantic-routing block. Cover every field, every nested
-block. Include commented `agora_service:` on each provider.
+block. Include commented `agora_tunnel:` on each provider.
 
 Do not add anything to `etc/dev.yaml`.
 
@@ -696,7 +696,7 @@ catalog + tunnel calls). Network-level integration is W14.
 ### W13 — Provider integration tests
 
 **Goal.** Verify each provider type (OpenAI, Anthropic, Local
-single, Local multi-endpoint) correctly uses an agora_service
+single, Local multi-endpoint) correctly uses an agora_tunnel
 when configured.
 
 **Work.**
@@ -704,7 +704,7 @@ when configured.
 Per-provider tests that:
 
 1. Construct a `Config` with the provider configured with
-   `agora_service: "test-service"`.
+   `agora_tunnel: "test-tunnel"`.
 2. Stand up a stub HTTP server on a real local port.
 3. Use a fake `agoraSubsystem` whose `ConnectAddress` returns the
    stub server's address.
@@ -714,7 +714,7 @@ Per-provider tests that:
    default URL).
 
 For multi-endpoint Local, verify round-robin still works when
-endpoints mix direct and agora_service.
+endpoints mix direct and agora_tunnel.
 
 **Acceptance.**
 
@@ -786,7 +786,7 @@ Run `llm-gateway run config.yaml`. Verify:
   gateway through the fabric
 - SIGINT retracts/removes everything within the shutdown budget
 
-Bonus: add `providers.open_ai.agora_service: "openai-relay"` (with
+Bonus: add `providers.open_ai.agora_tunnel: "openai-relay"` (with
 a corresponding agora-side serve) and verify the gateway routes
 OpenAI calls through it.
 
@@ -866,7 +866,7 @@ project's user-facing docs acknowledge agora support.
 ## Risks and unknowns
 
 - **`dd` snake-case mapping for acronym fields.** `APIEndpoint`,
-  `WorkgroupIDs`, `AgoraService`, etc. Spike before W2; add
+  `WorkgroupIDs`, `AgoraTunnel`, etc. Spike before W2; add
   explicit tags only where needed.
 
 - **Connect port pre-allocation race.** The agora tunnel SDK
@@ -888,7 +888,7 @@ project's user-facing docs acknowledge agora support.
   through `initProviders` against W9 acceptance.
 
 - **Multi-endpoint Local with mixed transports.** Round-robin needs
-  to treat agora_service-fronted endpoints identically to direct
+  to treat agora_tunnel-fronted endpoints identically to direct
   ones. The existing health-check loop is the riskiest piece — if
   it relies on probing the `base_url`, an agora-fronted endpoint
   will probe its local listen, which forwards across the fabric.

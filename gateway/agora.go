@@ -23,8 +23,8 @@ var (
 )
 
 type agoraConnectTarget struct {
-	Key     string
-	Service string
+	Key    string
+	Tunnel string
 }
 
 type agoraOps interface {
@@ -263,7 +263,7 @@ func (s *agoraSubsystem) BootstrapConnects(ctx context.Context) error {
 			return err
 		}
 		status, err := s.ops.EnsureConnected(ctx, s.agent, tunnel.ConnectSpec{
-			Name:          target.Service,
+			Name:          target.Tunnel,
 			ListenAddress: listenAddress,
 		})
 		if err != nil {
@@ -433,14 +433,14 @@ func collectAgoraConnectTargets(cfg *Config) ([]agoraConnectTarget, error) {
 
 	var targets []agoraConnectTarget
 	if cfg.Providers.OpenAI != nil {
-		target, err := providerAgoraTarget("openai", cfg.Providers.OpenAI.AgoraService, cfg.Providers.OpenAI.ZrokShareToken)
+		target, err := providerAgoraTarget("openai", cfg.Providers.OpenAI.AgoraTunnel, cfg.Providers.OpenAI.ZrokShareToken)
 		if err != nil {
 			return nil, err
 		}
 		targets = appendTarget(targets, target)
 	}
 	if cfg.Providers.Anthropic != nil {
-		target, err := providerAgoraTarget("anthropic", cfg.Providers.Anthropic.AgoraService, cfg.Providers.Anthropic.ZrokShareToken)
+		target, err := providerAgoraTarget("anthropic", cfg.Providers.Anthropic.AgoraTunnel, cfg.Providers.Anthropic.ZrokShareToken)
 		if err != nil {
 			return nil, err
 		}
@@ -450,17 +450,17 @@ func collectAgoraConnectTargets(cfg *Config) ([]agoraConnectTarget, error) {
 		if len(cfg.Providers.Local.Endpoints) > 0 {
 			for _, ep := range cfg.Providers.Local.Endpoints {
 				key := "local:" + strings.TrimSpace(ep.Name)
-				target, err := providerAgoraTarget(key, ep.AgoraService, ep.ZrokShareToken)
+				target, err := providerAgoraTarget(key, ep.AgoraTunnel, ep.ZrokShareToken)
 				if err != nil {
 					return nil, err
 				}
 				if target != nil && strings.TrimSpace(ep.Name) == "" {
-					return nil, fmt.Errorf("local endpoint name is required when agora_service is set")
+					return nil, fmt.Errorf("local endpoint name is required when agora_tunnel is set")
 				}
 				targets = appendTarget(targets, target)
 			}
 		} else {
-			target, err := providerAgoraTarget("local", cfg.Providers.Local.AgoraService, cfg.Providers.Local.ZrokShareToken)
+			target, err := providerAgoraTarget("local", cfg.Providers.Local.AgoraTunnel, cfg.Providers.Local.ZrokShareToken)
 			if err != nil {
 				return nil, err
 			}
@@ -471,15 +471,15 @@ func collectAgoraConnectTargets(cfg *Config) ([]agoraConnectTarget, error) {
 	return targets, nil
 }
 
-func providerAgoraTarget(key, agoraService, zrokShareToken string) (*agoraConnectTarget, error) {
-	agoraService = strings.TrimSpace(os.ExpandEnv(agoraService))
-	if agoraService == "" {
+func providerAgoraTarget(key, agoraTunnel, zrokShareToken string) (*agoraConnectTarget, error) {
+	agoraTunnel = strings.TrimSpace(os.ExpandEnv(agoraTunnel))
+	if agoraTunnel == "" {
 		return nil, nil
 	}
 	if strings.TrimSpace(zrokShareToken) != "" {
-		return nil, fmt.Errorf("provider '%s' cannot set both agora_service and zrok_share_token", key)
+		return nil, fmt.Errorf("provider '%s' cannot set both agora_tunnel and zrok_share_token", key)
 	}
-	return &agoraConnectTarget{Key: key, Service: agoraService}, nil
+	return &agoraConnectTarget{Key: key, Tunnel: agoraTunnel}, nil
 }
 
 func appendTarget(targets []agoraConnectTarget, target *agoraConnectTarget) []agoraConnectTarget {

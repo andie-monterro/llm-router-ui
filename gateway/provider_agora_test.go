@@ -33,8 +33,8 @@ func TestInitOpenAIProviderViaAgoraConnect(t *testing.T) {
 	cfg := &Config{
 		Providers: &ProvidersConfig{
 			OpenAI: &OpenAIConfig{
-				APIKey:       "sk-test",
-				AgoraService: "openai-relay",
+				APIKey:      "sk-test",
+				AgoraTunnel: "openai-relay",
 			},
 		},
 	}
@@ -81,8 +81,8 @@ func TestInitAnthropicProviderViaAgoraConnect(t *testing.T) {
 	cfg := &Config{
 		Providers: &ProvidersConfig{
 			Anthropic: &AnthropicConfig{
-				APIKey:       "sk-ant-test",
-				AgoraService: "anthropic-relay",
+				APIKey:      "sk-ant-test",
+				AgoraTunnel: "anthropic-relay",
 			},
 		},
 	}
@@ -117,7 +117,7 @@ func TestInitLocalProviderViaAgoraConnect(t *testing.T) {
 	cfg := &Config{
 		Providers: &ProvidersConfig{
 			Local: &LocalConfig{
-				AgoraService: "local-relay",
+				AgoraTunnel: "local-relay",
 			},
 		},
 	}
@@ -154,7 +154,7 @@ func TestInitLocalMultiProviderWithMixedAgoraEndpoint(t *testing.T) {
 			Local: &LocalConfig{
 				Endpoints: []LocalEndpointConfig{
 					{Name: "direct", BaseURL: direct.URL},
-					{Name: "remote", AgoraService: "remote-relay"},
+					{Name: "remote", AgoraTunnel: "remote-relay"},
 				},
 				HealthCheck: &HealthCheckConfig{
 					IntervalSeconds: 3600,

@@ -7,7 +7,7 @@ An OpenAI-compatible API proxy that routes requests to OpenAI, Anthropic, and an
 Most LLM proxies solve API translation. This one also solves the network problem: how do you connect a gateway to GPU boxes behind NAT, expose it to clients without opening ports, and route requests to the right model — all without bolting on a VPN, a service mesh, or a routing database?
 
 - **Zero-trust networking with zrok (over OpenZiti)** — the gateway and its backends communicate using [zrok](https://github.com/openziti/zrok) over [OpenZiti](https://openziti.io) overlay networks. Expose the gateway or reach a backend across NAT, air-gapped networks, or cloud boundaries without firewall rules or port forwarding. Both directions work the same way.
-- **Agora integration** — publish the gateway in an Agora catalog, serve it over an Agora Layer 1 tunnel, and connect providers through Agora services.
+- **Agora integration** — publish the gateway in an Agora catalog, serve it over an Agora Layer 1 tunnel, and connect providers through Agora tunnels.
 - **Semantic routing** — a three-layer cascade (keyword heuristics, embedding similarity, LLM classifier) selects the best model automatically when clients omit the `model` field. No hand-maintained routing tables.
 - **Multi-endpoint load balancing** — weighted round-robin, health checks with passive failover, and VM sleep detection across a pool of inference servers. Works with Ollama, llama-server, vLLM, SGLang, or anything that exposes `/v1/chat/completions`. Built for distributing inference across real hardware.
 - **Single binary, zero infrastructure** — one Go binary, one YAML file. No database, no message queue, no sidecar.
@@ -23,7 +23,7 @@ Most LLM proxies solve API translation. This one also solves the network problem
 - **OpenTelemetry metrics**: Prometheus-exported metrics for requests, latency, tokens, and endpoint health
 - **zrok integration**: Expose the gateway via zrok private or public shares
 - **Agora integration**: Publish, serve, and connect through Agora networks
-- **Zero-trust backends**: Connect to any provider via zrok shares or Agora services (no exposed ports)
+- **Zero-trust backends**: Connect to any provider via zrok shares or Agora tunnels (no exposed ports)
 
 > **New here?** See the [Getting Started guide](docs/getting-started.md) for a step-by-step walkthrough from zero to a working gateway.
 
@@ -111,13 +111,13 @@ providers:
       - name: remote
         zrok_share_token: "abc123"
       - name: agora-remote
-        agora_service: "gpu-service"
+        agora_tunnel: "gpu-tunnel"
     health_check:
       interval_seconds: 30   # default: 30
       timeout_seconds: 5     # default: 5
 ```
 
-Each endpoint can use direct HTTP, a zrok share, or an Agora service. The optional `weight` (default: 1) controls the proportion of traffic an endpoint receives — an endpoint with weight 3 gets ~3x the requests of weight 1. A background goroutine pings each endpoint at the configured interval and marks unhealthy endpoints for automatic skip. Network errors during requests also trigger immediate passive failover. All gateway features that use the local provider (chat completions, embeddings, classifier) distribute requests across the endpoint group.
+Each endpoint can use direct HTTP, a zrok share, or an Agora tunnel. The optional `weight` (default: 1) controls the proportion of traffic an endpoint receives — an endpoint with weight 3 gets ~3x the requests of weight 1. A background goroutine pings each endpoint at the configured interval and marks unhealthy endpoints for automatic skip. Network errors during requests also trigger immediate passive failover. All gateway features that use the local provider (chat completions, embeddings, classifier) distribute requests across the endpoint group.
 
 The endpoints don't all have to run the same software. You can mix Ollama, vLLM, llama-server, or any other OpenAI-compatible server in the same pool — the load balancing layer doesn't care what's behind the URL.
 
@@ -171,18 +171,18 @@ providers:
     api_key: "${OPENAI_API_KEY}"
     base_url: ""             # optional: override for Azure or compatible APIs
     zrok_share_token: ""     # optional: connect via zrok share
-    agora_service: ""        # optional: connect via Agora service
+    agora_tunnel: ""        # optional: connect via Agora tunnel
 
   anthropic:
     api_key: "${ANTHROPIC_API_KEY}"
     base_url: ""             # optional: override base URL
     zrok_share_token: ""     # optional: connect via zrok share
-    agora_service: ""        # optional: connect via Agora service
+    agora_tunnel: ""        # optional: connect via Agora tunnel
 
   local:
     base_url: "http://localhost:11434"
     zrok_share_token: ""     # optional: connect via zrok share
-    agora_service: ""        # optional: connect via Agora service
+    agora_tunnel: ""        # optional: connect via Agora tunnel
 
     # or use multi-endpoint mode for round-robin + failover:
     # endpoints:
@@ -193,7 +193,7 @@ providers:
     #   - name: remote
     #     zrok_share_token: "abc123"
     #   - name: agora-remote
-    #     agora_service: "gpu-service"
+    #     agora_tunnel: "gpu-tunnel"
     # health_check:
     #   interval_seconds: 30
     #   timeout_seconds: 5
@@ -455,7 +455,7 @@ providers:
 
 Agora support lets the gateway publish itself in an Agora catalog,
 serve the gateway API over an Agora Layer 1 tunnel, and connect to
-providers through Agora services:
+providers through Agora tunnels:
 
 ```yaml
 agora:
@@ -469,7 +469,7 @@ agora:
 
 providers:
   local:
-    agora_service: "local-llm"
+    agora_tunnel: "local-llm"
 ```
 
 Agora is additive: the local HTTP listener remains active, and

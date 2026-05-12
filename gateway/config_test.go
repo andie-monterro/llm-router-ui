@@ -52,37 +52,58 @@ agora:
 	}
 }
 
-func TestLoadConfigProviderAgoraService(t *testing.T) {
+func TestLoadConfigProviderAgoraTunnel(t *testing.T) {
 	path := writeTempConfig(t, `
 providers:
   open_ai:
     api_key: "sk-test"
-    agora_service: "openai-relay"
+    agora_tunnel: "openai-relay"
   anthropic:
     api_key: "sk-ant-test"
-    agora_service: "anthropic-relay"
+    agora_tunnel: "anthropic-relay"
   local:
-    agora_service: "local-relay"
+    agora_tunnel: "local-relay"
     endpoints:
       - name: gpu
-        agora_service: "gpu-relay"
+        agora_tunnel: "gpu-relay"
 `)
 
 	cfg, err := LoadConfig(path)
 	if err != nil {
 		t.Fatalf("LoadConfig returned error: %v", err)
 	}
-	if cfg.Providers.OpenAI.AgoraService != "openai-relay" {
-		t.Fatalf("open_ai agora_service = %q", cfg.Providers.OpenAI.AgoraService)
+	if cfg.Providers.OpenAI.AgoraTunnel != "openai-relay" {
+		t.Fatalf("open_ai agora_tunnel = %q", cfg.Providers.OpenAI.AgoraTunnel)
 	}
-	if cfg.Providers.Anthropic.AgoraService != "anthropic-relay" {
-		t.Fatalf("anthropic agora_service = %q", cfg.Providers.Anthropic.AgoraService)
+	if cfg.Providers.Anthropic.AgoraTunnel != "anthropic-relay" {
+		t.Fatalf("anthropic agora_tunnel = %q", cfg.Providers.Anthropic.AgoraTunnel)
 	}
-	if cfg.Providers.Local.AgoraService != "local-relay" {
-		t.Fatalf("local agora_service = %q", cfg.Providers.Local.AgoraService)
+	if cfg.Providers.Local.AgoraTunnel != "local-relay" {
+		t.Fatalf("local agora_tunnel = %q", cfg.Providers.Local.AgoraTunnel)
 	}
-	if got := cfg.Providers.Local.Endpoints[0].AgoraService; got != "gpu-relay" {
-		t.Fatalf("endpoint agora_service = %q", got)
+	if got := cfg.Providers.Local.Endpoints[0].AgoraTunnel; got != "gpu-relay" {
+		t.Fatalf("endpoint agora_tunnel = %q", got)
+	}
+}
+
+func TestProviderAgoraTunnelExpandsEnv(t *testing.T) {
+	t.Setenv("OPENAI_AGORA_TUNNEL", "openai-relay")
+	path := writeTempConfig(t, `
+providers:
+  open_ai:
+    api_key: "sk-test"
+    agora_tunnel: "${OPENAI_AGORA_TUNNEL}"
+`)
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig returned error: %v", err)
+	}
+	if err := resolveAgoraConfig(cfg); err != nil {
+		t.Fatalf("resolveAgoraConfig returned error: %v", err)
+	}
+	if cfg.Providers.OpenAI.AgoraTunnel != "openai-relay" {
+		t.Fatalf("agora_tunnel = %q", cfg.Providers.OpenAI.AgoraTunnel)
 	}
 }
 

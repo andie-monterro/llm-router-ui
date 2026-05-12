@@ -76,7 +76,7 @@ routing:                  # optional: semantic routing
 
 ## Agora Configuration
 
-Agora support is optional and additive. Enabling `agora:` does not disable the normal HTTP listener, zrok sharing, or direct provider URLs. The gateway can publish an Agora catalog advertisement, serve its API over an Agora Layer 1 tunnel, and connect to providers through Agora services. See [docs/agora.md](agora.md) for the full reference.
+Agora support is optional and additive. Enabling `agora:` does not disable the normal HTTP listener, zrok sharing, or direct provider URLs. The gateway can publish an Agora catalog advertisement, serve its API over an Agora Layer 1 tunnel, and connect to providers through Agora tunnels. See [docs/agora.md](agora.md) for the full reference.
 
 ```yaml
 agora:
@@ -113,7 +113,7 @@ providers:
     api_key: "${OPENAI_API_KEY}"      # required
     base_url: "https://api.openai.com" # optional: override for Azure or proxies
     zrok_share_token: ""               # optional: reach the API through a zrok share
-    agora_service: ""                  # optional: reach the API through an Agora service
+    agora_tunnel: ""                  # optional: reach the API through an Agora tunnel
 ```
 
 If `base_url` is omitted, it defaults to `https://api.openai.com`. Setting `base_url` lets you point at Azure OpenAI, a local proxy, or any OpenAI-compatible API.
@@ -126,7 +126,7 @@ providers:
     api_key: "${ANTHROPIC_API_KEY}"      # required
     base_url: "https://api.anthropic.com" # optional: override base URL
     zrok_share_token: ""                  # optional: reach the API through a zrok share
-    agora_service: ""                     # optional: reach the API through an Agora service
+    agora_tunnel: ""                     # optional: reach the API through an Agora tunnel
 ```
 
 If `base_url` is omitted, it defaults to `https://api.anthropic.com`.
@@ -140,7 +140,7 @@ providers:
   local:
     base_url: "http://localhost:11434"  # optional (default: http://localhost:11434)
     zrok_share_token: ""                # optional: reach the backend through a zrok share
-    agora_service: ""                   # optional: reach the backend through an Agora service
+    agora_tunnel: ""                   # optional: reach the backend through an Agora tunnel
 ```
 
 ### Local Backend (Multi-Endpoint)
@@ -159,7 +159,7 @@ providers:
       - name: remote
         zrok_share_token: "abc123"
       - name: agora-remote
-        agora_service: "gpu-service"
+        agora_tunnel: "gpu-tunnel"
     health_check:
       interval_seconds: 30   # default: 30
       timeout_seconds: 5     # default: 5
@@ -167,7 +167,7 @@ providers:
 
 ### Connecting Providers via Overlay Transports
 
-Any provider can be reached through a zrok share or an Agora service instead of a direct URL. Set `zrok_share_token` for zrok or `agora_service` for Agora. Do not set both on the same provider or endpoint. See [docs/zrok.md](zrok.md) and [docs/agora.md](agora.md) for details.
+Any provider can be reached through a zrok share or an Agora tunnel instead of a direct URL. Set `zrok_share_token` for zrok or `agora_tunnel` for Agora. Do not set both on the same provider or endpoint. See [docs/zrok.md](zrok.md) and [docs/agora.md](agora.md) for details.
 
 ## Metrics Configuration
 
@@ -225,7 +225,7 @@ providers:
       - name: remote
         zrok_share_token: "abc123"
       - name: agora-remote
-        agora_service: "gpu-service"
+        agora_tunnel: "gpu-tunnel"
 
 metrics:
   enabled: true
