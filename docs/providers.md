@@ -52,8 +52,10 @@ The Anthropic provider translates between the OpenAI format and [Anthropic's Mes
 | `model` | `model` | passed through |
 | `messages` (role: system) | `system` | first system message extracted into Anthropic's top-level `system` field |
 | `messages` (role: user) | `messages` (role: user) | |
-| `messages` (role: assistant) | `messages` (role: assistant) | |
-| `messages` (role: tool) | `messages` (role: user) | mapped to user role |
+| `messages` (role: assistant) | `messages` (role: assistant) | `tool_calls` become `tool_use` content blocks |
+| `messages` (role: tool) | `messages` (role: user) | converted to `tool_result` content blocks keyed by `tool_use_id`; consecutive tool results are coalesced into a single user message |
+| `tools` | `tools` | `function.parameters` becomes `input_schema` (defaults to an empty object schema when absent); non-function tools are skipped |
+| `tool_choice` | `tool_choice` | `"auto"` -> `{"type":"auto"}`, `"required"` -> `{"type":"any"}`, `{"type":"function","function":{"name"}}` -> `{"type":"tool","name"}`; `"none"` omits tools entirely |
 | `max_tokens` | `max_tokens` | defaults to 4096 if not set (Anthropic requires this field) |
 | `temperature` | `temperature` | |
 | `top_p` | `top_p` | |
@@ -70,9 +72,10 @@ Requests are sent to `POST {base_url}/v1/messages` with headers:
 |---|---|---|
 | `id` | `id` | |
 | `content[].text` | `choices[0].message.content` | text blocks are concatenated |
+| `content[].tool_use` | `choices[0].message.tool_calls` | `input` is serialized to the `arguments` JSON string; `content` is `null` when only tool calls are present |
 | `usage.input_tokens` | `usage.prompt_tokens` | |
 | `usage.output_tokens` | `usage.completion_tokens` | |
-| `stop_reason` | `choices[0].finish_reason` | `end_turn` and `stop_sequence` become `stop`; `max_tokens` becomes `length` |
+| `stop_reason` | `choices[0].finish_reason` | `end_turn` and `stop_sequence` become `stop`; `max_tokens` becomes `length`; `tool_use` becomes `tool_calls` |
 
 ### Streaming Translation
 
@@ -81,7 +84,9 @@ Anthropic uses a different streaming event format than OpenAI. The gateway trans
 | Anthropic event | Action |
 |---|---|
 | `message_start` | captures the message ID for subsequent chunks |
-| `content_block_delta` | emitted as an OpenAI-format `chat.completion.chunk` with the delta text |
+| `content_block_start` (tool_use) | emitted as a chunk opening a tool call (`index`, `id`, `name`) |
+| `content_block_delta` (text) | emitted as an OpenAI-format `chat.completion.chunk` with the delta text |
+| `content_block_delta` (input_json_delta) | emitted as a chunk carrying a `tool_calls` argument fragment |
 | `message_delta` | emitted as a chunk with the `finish_reason` |
 | `message_stop` | emitted as the `[DONE]` sentinel |
 
