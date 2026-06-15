@@ -30,6 +30,23 @@ type anthropicRequest struct {
 	Temperature *float64           `json:"temperature,omitempty"`
 	TopP        *float64           `json:"top_p,omitempty"`
 	StopSequences []string         `json:"stop_sequences,omitempty"`
+	Tools       []anthropicTool      `json:"tools,omitempty"`
+	ToolChoice  *anthropicToolChoice `json:"tool_choice,omitempty"`
+}
+
+// anthropicTool is a function tool in Anthropic's request format. InputSchema
+// holds the JSON schema (equivalent to OpenAI's function.parameters).
+type anthropicTool struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	InputSchema any    `json:"input_schema"`
+}
+
+// anthropicToolChoice is Anthropic's tool_choice object: {"type":"auto"},
+// {"type":"any"}, or {"type":"tool","name":"X"}.
+type anthropicToolChoice struct {
+	Type string `json:"type"`
+	Name string `json:"name,omitempty"`
 }
 
 type anthropicMessage struct {
@@ -37,10 +54,21 @@ type anthropicMessage struct {
 	Content any    `json:"content"` // string or []anthropicContentBlock
 }
 
+// anthropicContentBlock serves three roles: request tool_use blocks (built from
+// assistant tool_calls), request tool_result blocks (built from tool messages),
+// and response blocks (text or tool_use) read back from Anthropic. Every
+// optional field is omitempty so unused fields don't leak into the wire format.
 type anthropicContentBlock struct {
 	Type   string          `json:"type"`
 	Text   string          `json:"text,omitempty"`
 	Source *anthropicSource `json:"source,omitempty"`
+	// tool_use (assistant request blocks, and response blocks)
+	ID    string          `json:"id,omitempty"`
+	Name  string          `json:"name,omitempty"`
+	Input json.RawMessage `json:"input,omitempty"`
+	// tool_result (user request blocks)
+	ToolUseID string `json:"tool_use_id,omitempty"`
+	Content   any    `json:"content,omitempty"` // string or []block; we emit a string
 }
 
 type anthropicSource struct {
@@ -76,9 +104,10 @@ type anthropicStreamEvent struct {
 }
 
 type anthropicDelta struct {
-	Type       string `json:"type,omitempty"`
-	Text       string `json:"text,omitempty"`
-	StopReason string `json:"stop_reason,omitempty"`
+	Type        string `json:"type,omitempty"`
+	Text        string `json:"text,omitempty"`
+	PartialJSON string `json:"partial_json,omitempty"`
+	StopReason  string `json:"stop_reason,omitempty"`
 }
 
 type anthropicStreamUsage struct {
@@ -192,6 +221,23 @@ func (a *Anthropic) readSSEStream(body io.ReadCloser, events chan<- StreamEvent,
 	var messageID string
 	created := time.Now().Unix()
 
+	// streaming tool-call state: anthropic interleaves text and tool_use blocks
+	// in a single content-block index space, but OpenAI tool_call indices count
+	// only tool calls. map anthropic block index -> OpenAI tool_call index so a
+	// call's index stays stable across its argument fragments.
+	toolIndexByBlock := map[int]int{}
+	nextToolIndex := 0
+
+	emit := func(delta *Delta) {
+		events <- StreamEvent{Chunk: &StreamChunk{
+			ID:      messageID,
+			Object:  "chat.completion.chunk",
+			Created: created,
+			Model:   model,
+			Choices: []Choice{{Index: 0, Delta: delta}},
+		}}
+	}
+
 	for scanner.Scan() {
 		line := scanner.Text()
 
@@ -217,23 +263,40 @@ func (a *Anthropic) readSSEStream(body io.ReadCloser, events chan<- StreamEvent,
 				messageID = event.Message.ID
 			}
 
+		case "content_block_start":
+			if event.ContentBlock != nil && event.ContentBlock.Type == "tool_use" {
+				idx := nextToolIndex
+				toolIndexByBlock[event.Index] = idx
+				nextToolIndex++
+				// opening tool chunk: index + id + type + name, empty arguments
+				emit(&Delta{ToolCalls: []ToolCall{{
+					Index:    &idx,
+					ID:       event.ContentBlock.ID,
+					Type:     "function",
+					Function: FunctionCall{Name: event.ContentBlock.Name},
+				}}})
+			}
+
 		case "content_block_delta":
-			if event.Delta != nil && event.Delta.Text != "" {
-				chunk := &StreamChunk{
-					ID:      messageID,
-					Object:  "chat.completion.chunk",
-					Created: created,
-					Model:   model,
-					Choices: []Choice{
-						{
-							Index: 0,
-							Delta: &Delta{
-								Content: event.Delta.Text,
-							},
-						},
-					},
+			if event.Delta == nil {
+				continue
+			}
+			switch event.Delta.Type {
+			case "input_json_delta":
+				idx, ok := toolIndexByBlock[event.Index]
+				if !ok || event.Delta.PartialJSON == "" {
+					continue
 				}
-				events <- StreamEvent{Chunk: chunk}
+				toolIdx := idx
+				// argument fragment: index + arguments only
+				emit(&Delta{ToolCalls: []ToolCall{{
+					Index:    &toolIdx,
+					Function: FunctionCall{Arguments: event.Delta.PartialJSON},
+				}}})
+			default:
+				if event.Delta.Text != "" {
+					emit(&Delta{Content: event.Delta.Text})
+				}
 			}
 
 		case "message_delta":
@@ -311,28 +374,148 @@ func (a *Anthropic) translateRequest(req *ChatCompletionRequest) *anthropicReque
 		}
 	}
 
-	// extract system message and convert messages
+	// extract system message and convert messages. tool-role messages become
+	// anthropic tool_result blocks; consecutive ones coalesce into a single
+	// user message (anthropic requires tool_results grouped at the start of the
+	// user turn that follows the assistant tool_use turn).
+	var pending []anthropicContentBlock
+	flush := func() {
+		if len(pending) > 0 {
+			ar.Messages = append(ar.Messages, anthropicMessage{Role: "user", Content: pending})
+			pending = nil
+		}
+	}
+
 	for _, msg := range req.Messages {
-		if msg.Role == "system" {
+		switch msg.Role {
+		case "system":
 			// anthropic uses a separate system field
 			ar.System = a.extractContent(msg.Content)
-			continue
+		case "tool":
+			pending = append(pending, anthropicContentBlock{
+				Type:      "tool_result",
+				ToolUseID: msg.ToolCallID,
+				Content:   a.extractContent(msg.Content),
+			})
+		case "assistant":
+			flush()
+			ar.Messages = append(ar.Messages, a.convertAssistantMessage(msg))
+		default: // "user"
+			flush()
+			ar.Messages = append(ar.Messages, anthropicMessage{
+				Role:    "user",
+				Content: a.extractContent(msg.Content),
+			})
 		}
+	}
+	flush()
 
-		role := msg.Role
-		if role == "assistant" {
-			role = "assistant"
-		} else if role == "user" || role == "tool" {
-			role = "user"
-		}
-
-		ar.Messages = append(ar.Messages, anthropicMessage{
-			Role:    role,
-			Content: a.extractContent(msg.Content),
-		})
+	// translate tools and tool_choice. tool_choice "none" drops tools entirely
+	// (anthropic has no direct equivalent).
+	choice, dropTools := a.translateToolChoice(req.ToolChoice)
+	if !dropTools && len(req.Tools) > 0 {
+		ar.Tools = a.translateTools(req.Tools)
+		ar.ToolChoice = choice
 	}
 
 	return ar
+}
+
+// convertAssistantMessage converts an OpenAI assistant message into an anthropic
+// message. When the assistant made tool calls, its content becomes an array of
+// blocks: an optional leading text block followed by one tool_use block per call.
+func (a *Anthropic) convertAssistantMessage(msg Message) anthropicMessage {
+	if len(msg.ToolCalls) == 0 {
+		return anthropicMessage{Role: "assistant", Content: a.extractContent(msg.Content)}
+	}
+
+	var blocks []anthropicContentBlock
+	if text := a.extractContent(msg.Content); text != "" {
+		blocks = append(blocks, anthropicContentBlock{Type: "text", Text: text})
+	}
+	for _, tc := range msg.ToolCalls {
+		input := json.RawMessage(tc.Function.Arguments)
+		if len(input) == 0 {
+			input = json.RawMessage("{}")
+		}
+		blocks = append(blocks, anthropicContentBlock{
+			Type:  "tool_use",
+			ID:    tc.ID,
+			Name:  tc.Function.Name,
+			Input: input,
+		})
+	}
+	return anthropicMessage{Role: "assistant", Content: blocks}
+}
+
+// translateTools maps OpenAI function tools to anthropic tools. Non-function
+// tools are skipped; nil/empty parameters default to an empty object schema.
+func (a *Anthropic) translateTools(tools []Tool) []anthropicTool {
+	if len(tools) == 0 {
+		return nil
+	}
+	out := make([]anthropicTool, 0, len(tools))
+	for _, t := range tools {
+		if t.Type != "" && t.Type != "function" {
+			continue
+		}
+		schema := t.Function.Parameters
+		if isEmptySchema(schema) {
+			schema = map[string]any{"type": "object", "properties": map[string]any{}}
+		}
+		out = append(out, anthropicTool{
+			Name:        t.Function.Name,
+			Description: t.Function.Description,
+			InputSchema: schema,
+		})
+	}
+	return out
+}
+
+// isEmptySchema reports whether an OpenAI function.parameters value carries no
+// usable schema (nil, an empty object, or an empty string).
+func isEmptySchema(schema any) bool {
+	switch v := schema.(type) {
+	case nil:
+		return true
+	case map[string]interface{}:
+		return len(v) == 0
+	case string:
+		return v == ""
+	default:
+		return false
+	}
+}
+
+// translateToolChoice maps OpenAI tool_choice to anthropic's tool_choice object.
+// It returns dropTools=true for "none", signalling that tools should be omitted
+// from the request (anthropic has no direct "none" equivalent).
+func (a *Anthropic) translateToolChoice(tc any) (choice *anthropicToolChoice, dropTools bool) {
+	switch v := tc.(type) {
+	case nil:
+		return nil, false
+	case string:
+		switch v {
+		case "auto":
+			return &anthropicToolChoice{Type: "auto"}, false
+		case "required":
+			return &anthropicToolChoice{Type: "any"}, false
+		case "none":
+			return nil, true
+		default:
+			return nil, false
+		}
+	case map[string]interface{}:
+		// {"type":"function","function":{"name":"X"}}
+		if fn, ok := v["function"].(map[string]interface{}); ok {
+			if name, ok := fn["name"].(string); ok {
+				return &anthropicToolChoice{Type: "tool", Name: name}, false
+			}
+		}
+		return nil, false
+	default:
+		return nil, false
+	}
 }
 
 func (a *Anthropic) extractContent(content any) string {
@@ -355,12 +538,37 @@ func (a *Anthropic) extractContent(content any) string {
 }
 
 func (a *Anthropic) translateResponse(resp *anthropicResponse, model string) *ChatCompletionResponse {
-	// join all text content blocks
+	// collect text and tool_use blocks
 	var content strings.Builder
+	var toolCalls []ToolCall
 	for _, block := range resp.Content {
-		if block.Type == "text" {
+		switch block.Type {
+		case "text":
 			content.WriteString(block.Text)
+		case "tool_use":
+			args := string(block.Input)
+			if args == "" {
+				args = "{}"
+			}
+			toolCalls = append(toolCalls, ToolCall{
+				ID:       block.ID,
+				Type:     "function",
+				Function: FunctionCall{Name: block.Name, Arguments: args},
+			})
 		}
+	}
+
+	msg := &Message{Role: "assistant"}
+	if len(toolCalls) > 0 {
+		msg.ToolCalls = toolCalls
+		// match OpenAI: content is null when only tool calls are present
+		if content.Len() > 0 {
+			msg.Content = content.String()
+		} else {
+			msg.Content = nil
+		}
+	} else {
+		msg.Content = content.String()
 	}
 
 	return &ChatCompletionResponse{
@@ -370,11 +578,8 @@ func (a *Anthropic) translateResponse(resp *anthropicResponse, model string) *Ch
 		Model:   model,
 		Choices: []Choice{
 			{
-				Index: 0,
-				Message: &Message{
-					Role:    "assistant",
-					Content: content.String(),
-				},
+				Index:        0,
+				Message:      msg,
 				FinishReason: a.translateStopReason(resp.StopReason),
 			},
 		},
@@ -394,6 +599,8 @@ func (a *Anthropic) translateStopReason(reason string) string {
 		return "length"
 	case "stop_sequence":
 		return "stop"
+	case "tool_use":
+		return "tool_calls"
 	default:
 		return reason
 	}

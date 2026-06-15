@@ -54,16 +54,21 @@ type Function struct {
 }
 
 // ToolCall represents a tool call made by the model.
+// Index is populated only in streaming deltas, where it identifies which
+// tool call a fragment belongs to; it is omitted in non-streaming responses.
 type ToolCall struct {
-	ID       string       `json:"id"`
-	Type     string       `json:"type"`
+	Index    *int         `json:"index,omitempty"`
+	ID       string       `json:"id,omitempty"`
+	Type     string       `json:"type,omitempty"`
 	Function FunctionCall `json:"function"`
 }
 
 // FunctionCall represents a function call within a tool call.
+// Name/Arguments are omitempty so streaming argument fragments serialize as
+// {"index":N,"function":{"arguments":"..."}} without empty leading fields.
 type FunctionCall struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
 }
 
 // ResponseFormat specifies the desired response format.
