@@ -23,7 +23,7 @@ Most LLM proxies solve API translation. This one also solves the network problem
 - **zrok integration**: Expose the gateway via zrok private or public shares
 - **Zero-trust backends**: Connect to any provider via zrok shares (no exposed ports)
 
-> **New here?** See the [Getting Started guide](docs/getting-started.md) for a step-by-step walkthrough from zero to a working gateway.
+> **New here?** See the [Getting Started guide](docs/current/getting-started.md) for a step-by-step walkthrough from zero to a working gateway.
 
 ## Installation
 
@@ -201,7 +201,7 @@ api_keys:
       allowed_models: ["*"]
 ```
 
-Clients send the key via the `Authorization: Bearer <key>` header. The `/health` and `/metrics` endpoints remain unauthenticated. Keys can be restricted to specific models using glob patterns. See [docs/api-keys.md](docs/api-keys.md) for details.
+Clients send the key via the `Authorization: Bearer <key>` header. The `/health` and `/metrics` endpoints remain unauthenticated. Keys can be restricted to specific models using glob patterns. See [docs/current/api-keys.md](docs/current/api-keys.md) for details.
 
 ## Semantic Routing
 
@@ -363,7 +363,7 @@ tracing:
   max_content_length: 200   # max characters per message in log output
 ```
 
-Each chat completion request is logged with the model, message count, streaming flag, tool count, and each message's role and truncated content. See [docs/configuration.md](docs/configuration.md) for details.
+Each chat completion request is logged with the model, message count, streaming flag, tool count, and each message's role and truncated content. See [docs/current/configuration.md](docs/current/configuration.md) for details.
 
 ## CLI Reference
 
@@ -473,15 +473,15 @@ for chunk in stream:
 
 ## Documentation
 
-- [Getting Started](docs/getting-started.md) -- step-by-step setup guide
-- [Configuration](docs/configuration.md) -- full config reference and CLI flags
-- [Providers](docs/providers.md) -- provider details, streaming, and error handling
-- [Semantic Routing](docs/semantic-routing.md) -- threshold tuning, comparison modes, and caching
-- [API Keys](docs/api-keys.md) -- per-key model and route restrictions
-- [Multi-Endpoint Load Balancing](docs/multi-endpoint.md) -- weighted load balancing and failover
-- [Metrics](docs/metrics.md) -- Prometheus instruments and example queries
-- [Streaming](docs/streaming.md) -- SSE streaming details
-- [zrok](docs/zrok.md) -- overlay networking for sharing and access
+- [Getting Started](docs/current/getting-started.md) -- step-by-step setup guide
+- [Configuration](docs/current/configuration.md) -- full config reference and CLI flags
+- [Providers](docs/current/providers.md) -- provider details, streaming, and error handling
+- [Semantic Routing](docs/current/semantic-routing.md) -- threshold tuning, comparison modes, and caching
+- [API Keys](docs/current/api-keys.md) -- per-key model and route restrictions
+- [Multi-Endpoint Load Balancing](docs/current/multi-endpoint.md) -- weighted load balancing and failover
+- [Metrics](docs/current/metrics.md) -- Prometheus instruments and example queries
+- [Streaming](docs/current/streaming.md) -- SSE streaming details
+- [zrok](docs/current/zrok.md) -- overlay networking for sharing and access
 
 ## License
 

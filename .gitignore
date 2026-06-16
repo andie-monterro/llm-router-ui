@@ -38,3 +38,6 @@ yarn-error.log*
 CLAUDE.md
 AGENTS.md
 .codex
+
+.mercurius
+mercurius.yaml
