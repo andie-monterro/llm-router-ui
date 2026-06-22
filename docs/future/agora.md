@@ -67,7 +67,7 @@ The gateway's own serve tunnel is **operator pre-provisioned**, never created by
 
 This deletes the create-or-bind foot-guns outright — no create race, no leak-on-crash, no ephemeral grants re-applied each boot. The serve tunnel is a durable, operator-owned resource. The provisioning command and grants live on the operator side, out of the gateway's config.
 
-The gateway's front-door tunnel is a **direct** tunnel (the handler is the in-process backend; there is no `--backend` forwarding, so `agora tunnel serve` is *not* the right provisioner for it). If agora lacks a clean operator path to provision a bindable direct tunnel + grants, that gap is fixed **upstream in the agora project** rather than worked around with a gateway-side create path.
+The gateway's front-door tunnel is a **direct** tunnel (the handler is the in-process backend; there is no `--backend` forwarding, so `agora tunnel serve` is *not* the right provisioner for it — the operator provisions it out-of-band with `agora tunnel create` / `agora tunnel delete`). The gateway binds a tunnel its **account** owns; grants are for client/dialer access, not bind permission. Current agora requires the tunnel to live in the gateway's own enrolled environment; an upcoming agora update — expected to land before this change releases — relaxes that to any account-owned environment (one at a time). Provisioning stays operator-side; the gateway never gains a create path.
 
 Bind-only is the one deliberate divergence from the mcp-gateway reference, whose `serve.go` is create-or-bind. The implementation should copy mcp-gateway's `subsystem.go` and `dial.go` shape but write `serve.go` fresh — this is the single place "mirror mcp-gateway" does not apply.
 
@@ -94,9 +94,9 @@ The sites the work order will touch, named here for grounding:
 
 - **Config** (`gateway/config.go`): add a top-level `Agora *AgoraConfig` (`enabled`, `integration_file`, `api_endpoint`, `env_root`, `instance_name`, `description`, `serve.{enabled,tunnel}`, `advertisement.{publish,workgroup_ids,contract_id,capabilities}`); add an `AgoraTunnel string` field to `OpenAIConfig`, `AnthropicConfig`, `LocalConfig`, and `LocalEndpointConfig` — exactly paralleling the existing `ZrokShareToken` field. (No `serve.grants` — grants are an operator/provisioning concern under bind-only.)
 - **Bootstrap** (`gateway/gateway.go` `New`): construct the agora `Subsystem`; `Attach` every referenced tunnel; build the per-tunnel `*http.Client`s.
-- **Provider wiring** (`initProviders` and the local init paths): when a provider or endpoint has `AgoraTunnel` set, construct it via its `...WithClient` constructor with the agora client and sentinel URL, instead of the zrok client or a direct base URL. Agora takes precedence over a zrok token on the same site.
+- **Provider wiring** (`initProviders` and the local init paths): when a provider or endpoint has `AgoraTunnel` set, construct it via its `...WithClient` constructor with the agora client, passing the provider's configured/default base URL through unchanged — so a cloud-egress provider keeps its real `https://` URL and TLS rides the tunnel end-to-end, while an optional cosmetic sentinel like `http://<tunnel-name>` applies only to opaque local backends — instead of the zrok client or a direct base URL. Agora takes precedence over a zrok token on the same site.
 - **Multi-endpoint local — per-endpoint tunnels** (chosen): each `LocalEndpointConfig` maps to its own agora tunnel. This is a **drop-in**: `roundRobinTransport.doWithEndpoint` (multiLocal.go) already selects each endpoint's own `client.Transport` per request — the path that "supports zrok" today — so per-endpoint agora clients slot in unchanged, exactly as zrok already does. No special round-robin composition is needed.
-- **Semantic router — free** (`resolveEmbedProvider`, `gateway/gateway.go`): the embedding and classifier layers already inherit the provider's resolved `*http.Client` (`multi.RoundRobinClient()` or the openai client). No new agora config; they ride the provider transport automatically.
+- **Semantic router — free for local** (`resolveEmbedProvider`, `gateway/gateway.go`): for the **local** provider the embedding and classifier layers already inherit the resolved `*http.Client` (`multi.RoundRobinClient()` or the single-local client), so they ride the agora transport automatically with no new config. The **OpenAI** branch returns no custom client today (zrok has the identical gap), so OpenAI semantic routing — embeddings and classifier — does not ride agora this iteration; out of scope, not free.
 - **Serve startup** (`Run`): a `startAgoraServer` alongside the existing local and zrok servers, binding the handler to `Serve(ctx).Listener()`; publish the advertisement.
 - **Cleanup**: `Subsystem.Close()` as described under Lifecycle.
 
@@ -110,7 +110,7 @@ The sites the work order will touch, named here for grounding:
 
 ## Deferred (and why)
 
-**Managed-create serve (create-or-bind).** Iteration 1 is bind-only; the gateway never provisions its serve tunnel. The create path is deferred, and the bind-provisioning gap — if any — is closed upstream in agora rather than reintroduced here.
+**Managed-create serve (create-or-bind).** Iteration 1 is bind-only; the gateway never provisions its serve tunnel. The create path is deferred — the operator uses `agora tunnel create` / `agora tunnel delete`, and the bind semantics (account-scoped, with the cross-environment relaxation landing upstream) are handled in agora rather than reintroduced as a gateway-side create path.
 
 **Resilient degraded-mode startup.** Iteration 1 makes agora-at-boot fatal. Booting without agora and reconnecting in the background (so a transient agora outage doesn't take down a gateway also serving non-agora providers) is a deliberate later iteration, decided against observed behavior.
 
@@ -118,7 +118,7 @@ The sites the work order will touch, named here for grounding:
 
 **Single-tunnel relay-side load balancing for local.** Considered and rejected in favor of per-endpoint tunnels, which preserve the gateway's existing load-balancing semantics over the overlay. Revisit only if per-endpoint tunnel sprawl becomes an operational problem.
 
-**UDP/TCP serve modes.** The gateway serves HTTP; serve mode is HTTP. Other modes are SDK-supported but out of scope.
+**UDP/TCP serve modes.** The gateway serves HTTP over a direct tcp-mode tunnel, advertising `TunnelHTTP` as catalog/discovery metadata. Other serve modes — udp, or tcp carrying something other than HTTP — are SDK-supported but out of scope.
 
 **Steady-state reconnection policy** (heartbeat, retry, re-attach after a mid-run drop). Layer-1 hands lifetime ownership to the gateway; if reconnection turns out to be needed it is designed against observed behavior, not up front.
 
