@@ -111,6 +111,14 @@ func (f *fakeEdgeConn) GetStickinessToken() []byte {
 	return nil
 }
 
+func (f *fakeEdgeConn) GetDialerIdentityId() string {
+	return ""
+}
+
+func (f *fakeEdgeConn) GetDialerIdentityName() string {
+	return ""
+}
+
 func (f *fakeEdgeConn) Id() uint32 {
 	return 1
 }
