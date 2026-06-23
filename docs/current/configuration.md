@@ -38,13 +38,23 @@ Variables are expanded at config load time using `os.ExpandEnv`.
 ## Top-Level Keys
 
 ```yaml
-listen: ":8080"           # HTTP listen address (default: ":8080")
+listen: ":8080"           # HTTP listen address; opt-in/fallback (see note below)
 
 zrok:                     # optional: expose the gateway via zrok
   share:
     enabled: false
     mode: private         # public or private (default: private)
     token: ""             # existing persistent share token (private only)
+
+agora:                    # optional: serve/dial over the Agora overlay
+  enabled: false
+  serve:
+    enabled: false        # serve the gateway over an operator-provisioned tunnel
+    tunnel: ""            # bind-target tunnel name (default: instance_name)
+  advertisement:
+    publish: true         # tri-state; requires serve + workgroup_ids to publish
+    workgroup_ids: []
+  # see docs/agora.md for the full block (integration_file, api_endpoint, etc.)
 
 providers:                # backend provider configs
   open_ai: ...
@@ -62,6 +72,12 @@ routing:                  # optional: semantic routing
   ...                     # see docs/semantic-routing.md
 ```
 
+The gateway serves over every enabled transport at once. The local TCP `listen`
+is **opt-in or fallback**: it starts when `listen` is explicitly set, or as the
+fallback when no overlay serves (neither `zrok.share.enabled` nor
+`agora.serve.enabled`). Omit `listen` with an overlay serve enabled to stay
+private-only -- no plaintext local port is opened.
+
 ## Provider Configuration
 
 Each provider block is optional. Only configured providers are available for routing. A provider needs at minimum its required credentials (API key for OpenAI/Anthropic) to be initialized.
@@ -74,6 +90,7 @@ providers:
     api_key: "${OPENAI_API_KEY}"      # required
     base_url: "https://api.openai.com" # optional: override for Azure or proxies
     zrok_share_token: ""               # optional: reach the API through a zrok share
+    agora_tunnel: ""                   # optional: reach the API through an Agora tunnel (wins over zrok)
 ```
 
 If `base_url` is omitted, it defaults to `https://api.openai.com`. Setting `base_url` lets you point at Azure OpenAI, a local proxy, or any OpenAI-compatible API.
@@ -86,6 +103,7 @@ providers:
     api_key: "${ANTHROPIC_API_KEY}"      # required
     base_url: "https://api.anthropic.com" # optional: override base URL
     zrok_share_token: ""                  # optional: reach the API through a zrok share
+    agora_tunnel: ""                      # optional: reach the API through an Agora tunnel (wins over zrok)
 ```
 
 If `base_url` is omitted, it defaults to `https://api.anthropic.com`.
@@ -99,6 +117,7 @@ providers:
   local:
     base_url: "http://localhost:11434"  # optional (default: http://localhost:11434)
     zrok_share_token: ""                # optional: reach the backend through a zrok share
+    agora_tunnel: ""                    # optional: reach the backend through an Agora tunnel (wins over zrok)
 ```
 
 ### Local Backend (Multi-Endpoint)
@@ -124,6 +143,10 @@ providers:
 ### Connecting Providers via Zrok
 
 Any provider can be reached through a zrok share instead of (or alongside) a direct URL. Set `zrok_share_token` on the provider config. The gateway creates a zrok access object that provides an HTTP client routing through the zrok overlay network. See [docs/zrok.md](zrok.md) for details.
+
+### Connecting Providers via Agora
+
+Any provider can also be reached over an Agora tunnel by setting `agora_tunnel`. This requires `agora.enabled: true`. The gateway attaches each unique tunnel once at startup and hands the provider a shared HTTP client that dials the tunnel. The `base_url` passes through unchanged, so a cloud-egress provider keeps its real `https://` URL and TLS rides the tunnel end-to-end. When both `agora_tunnel` and `zrok_share_token` are set on the same provider, **Agora wins**. See [docs/agora.md](agora.md) for the full block, serving, and the three scenarios.
 
 ## Metrics Configuration
 
@@ -154,10 +177,10 @@ This is useful for debugging semantic routing decisions -- it shows exactly what
 4. Create the model-to-provider router
 5. Initialize OpenTelemetry metrics (if enabled)
 6. Initialize the semantic router (if configured)
-7. Start the HTTP server (local or via zrok share)
+7. Start the HTTP server over every enabled transport (local, zrok share, and/or Agora tunnel)
 8. Wait for SIGINT or SIGTERM, then shut down gracefully
 
-On shutdown, the gateway closes all providers, deletes ephemeral zrok shares, and releases zrok access objects.
+On shutdown, the gateway closes all providers, deletes ephemeral zrok shares, releases zrok access objects, and closes the Agora subsystem (retract advertisement, close serve listener, detach dial tunnels, close agent).
 
 ## Full Example
 

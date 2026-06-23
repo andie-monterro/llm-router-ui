@@ -29,12 +29,14 @@ providers:
         base_url: "http://10.0.0.2:11434"
       - name: remote
         zrok_share_token: "abc123"
+      - name: gpu-box-3
+        agora_tunnel: "infer-3"
     health_check:
       interval_seconds: 30
       timeout_seconds: 5
 ```
 
-Each endpoint has a `name` (used in logs and metrics) and either a `base_url` for direct HTTP or a `zrok_share_token` for overlay access. You can mix both in the same config.
+Each endpoint has a `name` (used in logs and metrics) and one transport: a `base_url` for direct HTTP, a `zrok_share_token` for a zrok share, or an `agora_tunnel` for an Agora tunnel. You can mix all three in the same config. When an endpoint sets both `agora_tunnel` and `zrok_share_token`, Agora wins. See [docs/agora.md](agora.md) for Agora setup.
 
 The optional `weight` field (default: 1) controls the proportion of traffic each endpoint receives. An endpoint with `weight: 3` gets roughly 3x the requests of an endpoint with `weight: 1`.
 
@@ -98,7 +100,7 @@ When semantic routing is configured with `provider: local` and the local provide
 This client works as a custom `http.RoundTripper` that:
 1. Selects the next healthy endpoint via round-robin
 2. Rewrites the request URL to target that endpoint
-3. Uses the endpoint's own HTTP transport (supporting zrok-based endpoints)
+3. Uses the endpoint's own HTTP transport (supporting zrok- and Agora-based endpoints)
 4. On network errors, marks the endpoint unhealthy and retries with the next one
 
 This means embedding and classifier requests benefit from the same load distribution and failover as chat completions, without any additional configuration.

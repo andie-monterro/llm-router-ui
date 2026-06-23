@@ -2,8 +2,10 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -11,21 +13,24 @@ import (
 	"time"
 
 	"github.com/michaelquigley/df/dl"
+	"github.com/openziti/llm-gateway/agora"
 	"github.com/openziti/llm-gateway/providers"
 	"github.com/openziti/llm-gateway/routing"
 )
 
 type Gateway struct {
-	cfg              *Config
-	providers        map[providers.ProviderType]providers.Provider
-	router           *providers.Router
-	semanticRouter   *routing.SemanticRouter
-	keyStore         *KeyStore
-	share            *Share
-	accesses         []*Access
+	cfg             *Config
+	providers       map[providers.ProviderType]providers.Provider
+	router          *providers.Router
+	semanticRouter  *routing.SemanticRouter
+	keyStore        *KeyStore
+	share           *Share
+	accesses        []*Access
 	localHTTPClient *http.Client
-	meters           *meters
-	metricsHandler   http.Handler
+	agora           *agora.Subsystem
+	agoraDial       func(string) (*http.Client, error)
+	meters          *meters
+	metricsHandler  http.Handler
 }
 
 func New(cfg *Config) (_ *Gateway, err error) {
@@ -38,6 +43,37 @@ func New(cfg *Config) (_ *Gateway, err error) {
 			g.cleanup()
 		}
 	}()
+
+	// bring up the agora subsystem before providers — provider wiring needs the
+	// per-tunnel dial clients. Any failure here is fatal at boot (iteration 1).
+	if cfg.Agora != nil && cfg.Agora.Enabled {
+		sub, serr := agora.NewSubsystem(agora.SubsystemOptions{
+			Config: cfg.Agora,
+			Defaults: agora.Defaults{
+				InstanceName:    "llm-gateway",
+				Description:     "OpenAI-compatible LLM gateway",
+				AgentNamePrefix: "llm-gateway",
+			},
+			Capabilities:  agora.Derive([]string{"llm-routing"}, capabilityExtras(cfg)),
+			ServeWanted:   cfg.AgoraServeEnabled(),
+			PublishWanted: cfg.AgoraPublishEnabled(),
+		})
+		if serr != nil {
+			return nil, serr
+		}
+		g.agora = sub
+
+		// reserve each unique agora tunnel once, front-loading the control-plane
+		// attachment out of the request hot path.
+		dialer := sub.Dialer()
+		ctx := context.Background()
+		for _, name := range collectAgoraTunnels(cfg) {
+			if aerr := dialer.Attach(ctx, name); aerr != nil {
+				return nil, aerr
+			}
+		}
+		g.agoraDial = dialer.HTTPClient
+	}
 
 	if err = g.initProviders(); err != nil {
 		return nil, err
@@ -81,7 +117,17 @@ func (g *Gateway) initProviders() error {
 		apiKey := os.ExpandEnv(g.cfg.Providers.OpenAI.APIKey)
 		baseURL := os.ExpandEnv(g.cfg.Providers.OpenAI.BaseURL)
 
-		if g.cfg.Providers.OpenAI.ZrokShareToken != "" {
+		if g.cfg.Providers.OpenAI.AgoraTunnel != "" {
+			// agora wins over zrok. pass baseURL through unchanged so the empty
+			// case keeps the real HTTPS default and TLS rides the tunnel
+			// end-to-end (cloud egress).
+			client, derr := g.agoraDial(g.cfg.Providers.OpenAI.AgoraTunnel)
+			if derr != nil {
+				return derr
+			}
+			g.providers[providers.ProviderOpenAI] = providers.NewOpenAIWithClient(apiKey, baseURL, client)
+			dl.Infof("initialized openai provider via agora tunnel '%s'", g.cfg.Providers.OpenAI.AgoraTunnel)
+		} else if g.cfg.Providers.OpenAI.ZrokShareToken != "" {
 			access, err := NewAccess(g.cfg.Providers.OpenAI.ZrokShareToken)
 			if err != nil {
 				return err
@@ -104,7 +150,16 @@ func (g *Gateway) initProviders() error {
 		apiKey := os.ExpandEnv(g.cfg.Providers.Anthropic.APIKey)
 		baseURL := os.ExpandEnv(g.cfg.Providers.Anthropic.BaseURL)
 
-		if g.cfg.Providers.Anthropic.ZrokShareToken != "" {
+		if g.cfg.Providers.Anthropic.AgoraTunnel != "" {
+			// agora wins over zrok. baseURL passes through unchanged (TLS rides
+			// the tunnel end-to-end for cloud egress).
+			client, derr := g.agoraDial(g.cfg.Providers.Anthropic.AgoraTunnel)
+			if derr != nil {
+				return derr
+			}
+			g.providers[providers.ProviderAnthropic] = providers.NewAnthropicWithClient(apiKey, baseURL, client)
+			dl.Infof("initialized anthropic provider via agora tunnel '%s'", g.cfg.Providers.Anthropic.AgoraTunnel)
+		} else if g.cfg.Providers.Anthropic.ZrokShareToken != "" {
 			access, err := NewAccess(g.cfg.Providers.Anthropic.ZrokShareToken)
 			if err != nil {
 				return err
@@ -138,7 +193,18 @@ func (g *Gateway) initProviders() error {
 
 func (g *Gateway) initLocalSingle() {
 	cfg := g.cfg.Providers.Local
-	if cfg.ZrokShareToken != "" {
+	if cfg.AgoraTunnel != "" {
+		// agora wins over zrok. semantic routing inherits g.localHTTPClient, so
+		// local embeddings/classifier ride the tunnel for free.
+		client, err := g.agoraDial(cfg.AgoraTunnel)
+		if err != nil {
+			dl.Errorf("failed to resolve agora tunnel '%s' for local provider: %v", cfg.AgoraTunnel, err)
+			return
+		}
+		g.localHTTPClient = client
+		g.providers[providers.ProviderLocal] = providers.NewLocalWithClient(cfg.BaseURL, g.localHTTPClient)
+		dl.Infof("initialized local provider via agora tunnel '%s'", cfg.AgoraTunnel)
+	} else if cfg.ZrokShareToken != "" {
 		access, err := NewAccess(cfg.ZrokShareToken)
 		if err != nil {
 			dl.Errorf("failed to create zrok access for local provider: %v", err)
@@ -164,7 +230,16 @@ func (g *Gateway) initLocalMulti() error {
 			BaseURL: ep.BaseURL,
 			Weight:  ep.Weight,
 		}
-		if ep.ZrokShareToken != "" {
+		if ep.AgoraTunnel != "" {
+			// agora wins over zrok. drop-in: roundRobinTransport selects each
+			// endpoint's own client.Transport per request, so the agora client
+			// (and its health checks) route over the tunnel with no extra wiring.
+			client, err := g.agoraDial(ep.AgoraTunnel)
+			if err != nil {
+				return fmt.Errorf("agora dial for endpoint '%s': %w", ep.Name, err)
+			}
+			opt.HTTPClient = client
+		} else if ep.ZrokShareToken != "" {
 			access, err := NewAccess(ep.ZrokShareToken)
 			if err != nil {
 				return fmt.Errorf("failed to create zrok access for endpoint '%s': %w", ep.Name, err)
@@ -193,7 +268,9 @@ func (g *Gateway) initLocalMulti() error {
 	g.providers[providers.ProviderLocal] = multi
 
 	for _, ep := range cfg.Endpoints {
-		if ep.ZrokShareToken != "" {
+		if ep.AgoraTunnel != "" {
+			dl.Infof("initialized local endpoint '%s' via agora tunnel '%s'", ep.Name, ep.AgoraTunnel)
+		} else if ep.ZrokShareToken != "" {
 			dl.Infof("initialized local endpoint '%s' via zrok share '%s'", ep.Name, ep.ZrokShareToken)
 		} else {
 			dl.Infof("initialized local endpoint '%s' at '%s'", ep.Name, ep.BaseURL)
@@ -204,6 +281,11 @@ func (g *Gateway) initLocalMulti() error {
 	return nil
 }
 
+// Run serves the gateway handler over every enabled transport at once — the
+// plain local listener, a zrok share, and an agora tunnel are independent
+// listeners and may run together. The local listener is opt-in (an explicit
+// cfg.Listen) or the fallback when no overlay serves, so a credential-firewall
+// deployment can stay private-only (agora serve, no local port).
 func (g *Gateway) Run() error {
 	handler := g.newHandler()
 
@@ -221,75 +303,111 @@ func (g *Gateway) Run() error {
 		cancel()
 	}()
 
-	if g.cfg.Zrok != nil && g.cfg.Zrok.Share != nil && g.cfg.Zrok.Share.Enabled {
-		return g.runWithZrok(ctx, handler)
+	zrokEnabled := g.cfg.Zrok != nil && g.cfg.Zrok.Share != nil && g.cfg.Zrok.Share.Enabled
+	agoraEnabled := g.cfg.AgoraServeEnabled()
+
+	type boundServer struct {
+		server   *http.Server
+		listener net.Listener
+		label    string
+	}
+	var bound []boundServer
+
+	// local tcp — opt-in (explicit listen) or fallback (no overlay serves).
+	if g.cfg.Listen != "" || (!zrokEnabled && !agoraEnabled) {
+		addr := g.cfg.Listen
+		if addr == "" {
+			addr = ":8080"
+		}
+		listener, err := net.Listen("tcp", addr)
+		if err != nil {
+			return fmt.Errorf("listen on '%s': %w", addr, err)
+		}
+		dl.Infof("listening on '%s'", addr)
+		bound = append(bound, boundServer{&http.Server{Handler: handler}, listener, "local"})
 	}
 
-	return g.runLocal(ctx, handler)
-}
-
-func (g *Gateway) runLocal(ctx context.Context, handler http.Handler) error {
-	addr := g.cfg.Listen
-	if addr == "" {
-		addr = ":8080"
+	// zrok share.
+	if zrokEnabled {
+		var share *Share
+		var err error
+		if g.cfg.Zrok.Share.Token != "" {
+			// use existing persistent share (private only)
+			share, err = NewShareFromToken(g.cfg.Zrok.Share.Token)
+		} else {
+			share, err = NewShare(g.cfg.Zrok.Share.Mode)
+		}
+		if err != nil {
+			return err
+		}
+		g.share = share
+		dl.Infof("serving via zrok share '%s'", share.Token())
+		bound = append(bound, boundServer{&http.Server{Handler: handler}, share.Listener(), "zrok"})
 	}
 
-	server := &http.Server{
-		Addr:    addr,
-		Handler: handler,
+	// agora tunnel (bind-only).
+	if agoraEnabled {
+		serve, err := g.agora.Serve(ctx)
+		if err != nil {
+			return err
+		}
+		dl.Infof("serving via agora tunnel '%s'", g.agora.ServeTunnelName())
+		bound = append(bound, boundServer{&http.Server{Handler: handler}, serve.Listener(), "agora"})
 	}
 
-	dl.Infof("listening on '%s'", addr)
+	if len(bound) == 0 {
+		return fmt.Errorf("no gateway listeners are configured")
+	}
 
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- server.ListenAndServe()
-	}()
+	// size errCh to the listener count so no serve goroutine blocks on send
+	// during shutdown (the gateway can have three listeners).
+	servers := make([]*http.Server, 0, len(bound))
+	errCh := make(chan error, len(bound))
+	for _, b := range bound {
+		servers = append(servers, b.server)
+		serveHTTP(b.server, b.listener, errCh, b.label)
+	}
+
+	// publish only after the listeners are live; a publish failure tears down all.
+	if g.cfg.AgoraPublishEnabled() {
+		if err := g.agora.StartPublishing(ctx); err != nil {
+			shutdownHTTPServers(servers)
+			return err
+		}
+	}
 
 	select {
 	case <-ctx.Done():
-		dl.Info("shutting down server")
-		return server.Shutdown(context.Background())
+		dl.Info("shutting down servers")
+		return shutdownHTTPServers(servers)
 	case err := <-errCh:
+		shutdownHTTPServers(servers)
 		return err
 	}
 }
 
-func (g *Gateway) runWithZrok(ctx context.Context, handler http.Handler) error {
-	var share *Share
-	var err error
-
-	if g.cfg.Zrok.Share.Token != "" {
-		// use existing persistent share (private only)
-		share, err = NewShareFromToken(g.cfg.Zrok.Share.Token)
-	} else {
-		share, err = NewShare(g.cfg.Zrok.Share.Mode)
-	}
-
-	if err != nil {
-		return err
-	}
-	g.share = share
-
-	dl.Infof("serving via zrok share '%s'", share.Token())
-
-	server := &http.Server{
-		Handler: handler,
-	}
-
-	errCh := make(chan error, 1)
+// serveHTTP serves one listener on its own goroutine, translating the expected
+// graceful-shutdown errors to nil and routing real failures to errCh.
+func serveHTTP(server *http.Server, listener net.Listener, errCh chan<- error, label string) {
 	go func() {
-		errCh <- server.Serve(share.Listener())
+		err := server.Serve(listener)
+		if err == nil || errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
+			errCh <- nil
+			return
+		}
+		errCh <- fmt.Errorf("%s listener failed: %w", label, err)
 	}()
+}
 
-	select {
-	case <-ctx.Done():
-		dl.Info("shutting down server")
-		server.Shutdown(context.Background())
-		return nil
-	case err := <-errCh:
-		return err
+// shutdownHTTPServers gracefully shuts down every server, joining any errors.
+func shutdownHTTPServers(servers []*http.Server) error {
+	var errs []error
+	for _, server := range servers {
+		if err := server.Shutdown(context.Background()); err != nil {
+			errs = append(errs, err)
+		}
 	}
+	return errors.Join(errs...)
 }
 
 func (g *Gateway) cleanup() {
@@ -303,6 +421,13 @@ func (g *Gateway) cleanup() {
 	}
 	for _, access := range g.accesses {
 		access.Close()
+	}
+	if g.agora != nil {
+		// retracts the advertisement, closes the serve listener (no delete —
+		// bind-only), detaches every dial tunnel, and closes the agent.
+		if err := g.agora.Close(); err != nil {
+			dl.Warnf("error closing agora subsystem: %v", err)
+		}
 	}
 }
 
