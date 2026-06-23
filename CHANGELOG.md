@@ -6,6 +6,8 @@ FEATURE: Full bidirectional tool-calling translation for the Anthropic provider,
 
 FIX: The Anthropic provider previously dropped `tools` and `tool_choice` entirely and flattened assistant `tool_calls` and `tool` results into plain text, so MCP/tool-calling clients never received their tools and Claude replied with prose instead of tool calls.
 
+FEATURE: New `dummy-model` standalone binary serves an OpenAI-compatible endpoint backed by a fake model, so tests and demos no longer need a real backend (Ollama, vLLM, OpenAI, etc.) or network egress. It echoes the last user message (or a canned `--response`), serves `/v1/models` and `/health`, and supports streaming with a configurable per-chunk `--stream-delay`, deterministic tool-call simulation when a request carries `tools`, and `--error-rate`/`--error-type` error injection. Point the gateway's `local.base_url` at it (default `:8081`) to use it as a drop-in backend.
+
 CHANGE: Refreshed dependencies across the tree to pick up upstream fixes, most notably `github.com/openziti/sdk-golang` to `v1.5.4`, along with the OpenTelemetry, go-openapi, and `zitadel/oidc` modules. The `go` directive also moves to `1.25.7`, raising the minimum Go required to build from source.
 
 ## v0.1.4
