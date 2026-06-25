@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.1.5
+
 FEATURE: Agora overlay transport, a peer to zrok built on the SDK's Layer 1 `Listen`/`Dial` primitives. The gateway can serve its handler over an operator-provisioned Agora tunnel (the credential-firewall front door) and dial providers or local endpoints that live behind Agora tunnels, set per-site with `agora_tunnel` alongside a top-level `agora:` block. Serving is **bind-only** -- the gateway binds a tunnel its account owns and never creates or deletes one. Every enabled listener (local, zrok, Agora) serves the same handler at once; the local TCP port is opt-in or fallback so a credential-firewall deployment stays private-only. When a provider sets both `agora_tunnel` and `zrok_share_token`, Agora wins, and a cloud-egress provider keeps its real `https://` base URL so TLS rides the tunnel end-to-end. See [docs/current/agora.md](docs/current/agora.md).
 
 FEATURE: Full bidirectional tool-calling translation for the Anthropic provider, including streaming. OpenAI `tools` and `tool_choice` now map to Anthropic `tools`/`input_schema` and `tool_choice`; Anthropic `tool_use` responses map back to OpenAI `tool_calls` (with `finish_reason: "tool_calls"`); multi-turn `tool` messages round-trip as coalesced Anthropic `tool_result` blocks; and streamed tool calls are assembled from `content_block_start`/`input_json_delta` events into OpenAI-shaped tool-call deltas.
