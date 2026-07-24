@@ -6,7 +6,7 @@ The forge issue tracker still exists as an inbox where outside users start conve
 
 ## An item
 
-One markdown file: YAML frontmatter carries the machine-readable spine, the body carries whatever prose the idea has right now — one line for a raw thought, pages for a matured design.
+One markdown file: YAML frontmatter carries the machine-readable spine, the body carries whatever prose the idea has right now — a single line for a raw thought, a tight paragraph or two once it's shaped. It stays a prompt (see [Writing the body](#writing-the-body)), not a document.
 
 ```yaml
 ---
@@ -35,6 +35,14 @@ body prose, at whatever weight the idea currently has.
 Unknown fields are tolerated and preserved. Items never nest; a cluster that wants to travel together is what `tags` are for.
 
 **The filename is the slug of the title.** The rule is mechanical so every writer derives the same name: lowercase `A`–`Z`; keep `a`–`z`, `0`–`9`, space, and hyphen; discard every other character; convert spaces to hyphens; collapse hyphen runs; trim leading and trailing hyphens. `Retry Semantics (v2)` becomes `retry-semantics-v2.md`. Never overwrite an existing file — a name collision means retitle the newcomer.
+
+### Writing the body
+
+The body is a **prompt**, not documentation — the problem to solve or the solution to execute, at just enough weight that someone could act on it. A card is read at a glance during triage; pages of prose are exactly the residue this format exists to avoid.
+
+- **Say the thing, then stop.** Name the problem, or the approach, and the open questions — no more. When a competent implementer could act on it without you in the room, it's long enough; everything past that is spew the next reader has to wade through.
+- **Don't restate what's discoverable.** Trust the code, `docs/current/`, and the journal for context that already exists; a card that re-explains the codebase is noise. When a card leans on hard-won context, point a `log:` stamp at the specific journal entry or doc rather than transcribing it.
+- **Depth lives in a spec, not the card.** If an idea genuinely needs pages — a full design — that goes in a separate `docs/future/` spec document, and the card points at it with a `log:` stamp (`spec drawn — docs/future/<name>.md`). The card stays the prompt; the spec carries the weight.
 
 ## The states
 
