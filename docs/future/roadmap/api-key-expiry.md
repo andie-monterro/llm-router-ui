@@ -7,5 +7,3 @@ milestone: v0.1.x
 ---
 
 Add an optional `expires_at` to a virtual API key so it stops authenticating past a set time. Expired keys are rejected at the auth middleware like an unknown key.
-
-Listed under "Not Yet Implemented" in `docs/current/api-keys.md`.

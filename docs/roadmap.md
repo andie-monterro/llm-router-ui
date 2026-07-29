@@ -14,7 +14,7 @@ title: retry semantics
 state: inbox
 created: 2026-07-24
 tags: [feature]
-source: github:openziti/llm-gateway#412
+source: github:netfoundry/sterling#412
 log:
   - stamp: 2026-07-24
     note: spec drawn — docs/future/retry-spec.md
@@ -41,6 +41,7 @@ Unknown fields are tolerated and preserved. Items never nest; a cluster that wan
 The body is a **prompt**, not documentation — the problem to solve or the solution to execute, at just enough weight that someone could act on it. A card is read at a glance during triage; pages of prose are exactly the residue this format exists to avoid.
 
 - **Say the thing, then stop.** Name the problem, or the approach, and the open questions — no more. When a competent implementer could act on it without you in the room, it's long enough; everything past that is spew the next reader has to wade through.
+- **Prompt first, discussion beneath.** The body opens with the prompt — the actionable statement, readable at a glance during triage. A `## Discussion` section may follow with a concise description of what the issue refers to: the mechanism, the motivating story, enough that a reader can understand the card cold. Discussion explains the prompt; it does not accumulate design — real depth still goes to a spec.
 - **Don't restate what's discoverable.** Trust the code, `docs/current/`, and the journal for context that already exists; a card that re-explains the codebase is noise. When a card leans on hard-won context, point a `log:` stamp at the specific journal entry or doc rather than transcribing it.
 - **Depth lives in a spec, not the card.** If an idea genuinely needs pages — a full design — that goes in a separate `docs/future/` spec document, and the card points at it with a `log:` stamp (`spec drawn — docs/future/<name>.md`). The card stays the prompt; the spec carries the weight.
 
@@ -82,5 +83,5 @@ Tags are soft grouping, optional. Apply the one that fits; don't invent near-syn
 - `enhancement` — an improvement to something that exists.
 - `epic` — large scope; an umbrella that will likely spawn multiple items or a spec.
 - `feature` — a new capability.
-- `spike` — a time-boxed investigation; the deliverable is understanding, not code.
+- `spike` — a modifier, not a work type: the item carries major unknowns that need figuring out before the path is clear. Combine it with the tag that names the work (`[epic, spike]`, `[feature, spike]`); leave it off when the path is already well understood.
 - `story` — user-story-shaped work.
