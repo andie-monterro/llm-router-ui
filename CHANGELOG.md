@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.1.6
+
 FEATURE: Sterling capability coordinates can be carried as strict virtual model aliases on the existing OpenAI chat surface. The gateway resolves `sterling-capability:sterling-classes/v1/<class>` to the configured route model before provider dispatch while applying explicit-model policy plus route and concrete-model API-key restrictions. The v1 vocabulary currently contains only `frontier-coding`.
 
 CHANGE: Every chat response now reports the concrete model selected by the gateway in its `model` field, for both non-streaming responses and streaming chunks. The gateway no longer passes through an upstream provider's differing model identifier; this makes the reported binding authoritative for all clients, not only Sterling capability runs. When the upstream reports a different identifier (a dated snapshot or server-side alias), the gateway logs it -- the tripwire that surfaces provider-side aliasing that would otherwise be normalized away.
