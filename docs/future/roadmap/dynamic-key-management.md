@@ -6,7 +6,7 @@ tags: [feature, spike]
 milestone: v0.1.x
 ---
 
-Manage virtual API keys at runtime.
+llm-gateway needs to grow a facility for dynamic key management. we can retain the facility to express keys in the config file. additionally, llm-gateway grows support for an extension point allowing keys to come from another data source. it will ship with an implementation that uses an external yaml file, and a unix signal can be used to provoke llm-gateway to re-read the external yaml file.
 
 ## Discussion
 
