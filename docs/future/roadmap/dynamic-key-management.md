@@ -1,12 +1,12 @@
 ---
-title: dynamic key management api
-state: horizon
+title: dynamic key management
+state: researching
 created: 2026-07-24
 tags: [feature, spike]
 milestone: v0.1.x
 ---
 
-Manage virtual API keys at runtime through an admin API... create, revoke, and list keys without editing the config file and restarting.
+Manage virtual API keys at runtime.
 
 ## Discussion
 
