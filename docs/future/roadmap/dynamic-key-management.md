@@ -4,6 +4,9 @@ state: researching
 created: 2026-07-24
 tags: [feature, spike]
 milestone: v0.1.x
+log:
+  - stamp: 2026-08-07
+    note: spec drawn — docs/future/dynamic-key-management.md
 ---
 
 llm-gateway needs to grow a facility for dynamic key management. we can retain the facility to express keys in the config file. additionally, llm-gateway grows support for an extension point allowing keys to come from another data source. it will ship with an implementation that uses an external yaml file, and a unix signal (and/or fsnotify) can be used to provoke llm-gateway to re-read the external yaml file.
