@@ -1,6 +1,6 @@
 ---
 title: dynamic key management
-state: researching
+state: building
 created: 2026-07-24
 tags: [feature, spike]
 milestone: v0.1.x
