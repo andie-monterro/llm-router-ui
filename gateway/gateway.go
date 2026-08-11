@@ -14,6 +14,7 @@ import (
 
 	"github.com/michaelquigley/df/dl"
 	"github.com/openziti/llm-gateway/agora"
+	"github.com/openziti/llm-gateway/keys"
 	"github.com/openziti/llm-gateway/providers"
 	"github.com/openziti/llm-gateway/routing"
 )
@@ -23,7 +24,7 @@ type Gateway struct {
 	providers        map[providers.ProviderType]providers.Provider
 	router           *providers.Router
 	semanticRouter   *routing.SemanticRouter
-	keyStore         *KeyStore
+	keyStore         *keys.Store
 	share            *Share
 	accesses         []*Access
 	localHTTPClient  *http.Client
@@ -96,7 +97,7 @@ func New(cfg *Config) (_ *Gateway, err error) {
 		if len(cfg.APIKeys.Keys) == 0 {
 			return nil, fmt.Errorf("api_keys.enabled requires at least one configured key")
 		}
-		ks, err := NewKeyStore(cfg.APIKeys.Keys)
+		ks, err := keys.NewStore(cfg.APIKeys.Keys)
 		if err != nil {
 			return nil, err
 		}

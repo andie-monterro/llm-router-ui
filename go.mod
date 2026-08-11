@@ -3,7 +3,7 @@ module github.com/openziti/llm-gateway
 go 1.26.4
 
 require (
-	github.com/michaelquigley/df v1.0.1
+	github.com/michaelquigley/df v1.0.2
 	github.com/michaelquigley/pfxlog v0.6.10
 	github.com/openziti/agora v0.1.5
 	github.com/openziti/sdk-golang v1.5.4

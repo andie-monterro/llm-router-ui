@@ -58,6 +58,12 @@ keys/
   meters.go        // OTel instruments
 ```
 
+**Read that layout as a list of responsibilities, not as prescribed filenames.** It groups by concern; terminus-canon's `camelcase-file-naming` names a Go file in lowerCamelCase after the single primary type it defines, with carve-outs for genuine role files (`config.go`, `middleware.go`, `doc.go`) and for concept-organized packages. Where the two disagree, the canon wins and the grouping above should bend to it. Stage 1 already hit this once: `source.go` held only `Contribution` and became `contribution.go`.
+
+Two later files are likely to hit it again, and are worth naming now rather than discovering at review. `refresh.go` is planned to hold `runner` as its only primary type, which wants `runner.go` unless it genuinely accumulates a role's worth of small declarations. `store.go` is planned to hold both `Store` and the exported `Snapshot`, which may want splitting since `Snapshot` is not a private helper the way the carve-out contemplates. Neither is a design question — decide them against the canon at the time, and expect the file list to end up longer than thirteen.
+
+The package also wants a `doc.go` stating the store-is-sole-owner seam, which the canon lists as an accepted role file. That is where the boundary this package exists to enforce should be legible to whoever arrives next.
+
 What leaves `gateway/`:
 
 | today | becomes |
@@ -930,6 +936,8 @@ Pre-1.0, and the review context accepts breaking changes that buy a better shape
 3. **A config key value outside the `b64token` grammar now fails at boot.** Previously stored and simply never authenticated, because HTTP will not deliver such a value intact. A `sk-gw-` key sits well inside the grammar; this only bites a key carrying spaces, control characters, or non-ASCII.
 4. **`api_keys.enabled: true` with no keys** no longer fails when `sources` are declared. The existing check narrows to "no keys *and* no sources" — once the store treats zero keys as deny-all, that check is a usability guard rather than a safety one.
 
+The first three apply **whenever an `api_keys` block is present, including when `enabled: false`.** A disabled block carrying an unknown field or a coercible value now fails at boot rather than being ignored: disabling authentication does not make malformed key configuration valid, and a block that will be switched on later should be found wrong before it is relied on rather than after.
+
 Go API changes (`APIKeyEntry`, `KeyFromContext`, `CheckModel`, `CheckRoute`, `NewKeyStore`) affect no external consumer realistically; the gateway is a binary.
 
 Config files that do not use `sources` and carry clean keys are unaffected.
@@ -937,6 +945,8 @@ Config files that do not use `sources` and carry clean keys are unaffected.
 ## Stages
 
 Each lands as its own review, gated by terminus to `clean` before it goes to Michael.
+
+**Every stage writes its own `docs/journal/` entry before it is committed**, per the agent-memory convention — dated entries written as the work happens, with review-on-commit as the gate. Not one entry at the end: a five-stage arc accumulates decisions whose rationale is invisible in the diff, and the stage that made a call is the only place with the context to explain it. Stage 1's entry, for instance, is the only record of why `LoadConfig` uses `dd.Merge` rather than `dd.Bind`.
 
 **Stages are review units on a branch, not releases.** Nothing here reaches a user until the whole work lands, so the bar for a stage is that it is green, coherent, and reviewable in isolation — not that it would be safe to ship on its own. An intermediate tree that has reloadable sources before the staleness machinery arrives is fine, because no deployment ever runs that tree. Read the ordering below as a decomposition for review, and do not reason about it as a sequence of releases.
 
@@ -948,7 +958,7 @@ Each lands as its own review, gated by terminus to `clean` before it goes to Mic
 
 **Stage 4 — the HTTP source.** ETag and `304`, `Cache-Control: no-cache`, the `count` check, pagination-header rejection, the `401`/`403` line, `collectAgoraTunnels` and the zrok path, client injection.
 
-**Stage 5 — documentation and close-out.** The zrok share-token log redaction (`NewAccess` label, `Share` recording token provenance, twelve message rewrites) lands here, since it touches no key-source machinery and wants its own small review. Rewrite `docs/current/api-keys.md` (including the wildcard correction); add `docs/current/key-sources.md` carrying the published contract and the three encodings, with the quote-your-timestamps rule stated beside the `expires_at` field itself rather than in a troubleshooting section; update `docs/current/configuration.md`'s top-level keys and startup sequence; `CHANGELOG.md` under `## Unreleased`; a `docs/journal/` entry. Then the roadmap close-out: `dynamic-key-management` deleted, `api-key-expiry` and `key-storage` bodies narrowed to what this work did not take, both spec and work order removed from `docs/future/` with the still-live deferred items re-synthesized into a smaller document.
+**Stage 5 — documentation and close-out.** The zrok share-token log redaction (`NewAccess` label, `Share` recording token provenance, twelve message rewrites) lands here, since it touches no key-source machinery and wants its own small review. Rewrite `docs/current/api-keys.md` (including the wildcard correction); add `docs/current/key-sources.md` carrying the published contract and the three encodings, with the quote-your-timestamps rule stated beside the `expires_at` field itself rather than in a troubleshooting section; update `docs/current/configuration.md`'s top-level keys and startup sequence; `CHANGELOG.md` under `## Unreleased`. Then the roadmap close-out: `dynamic-key-management` deleted, `api-key-expiry` and `key-storage` bodies narrowed to what this work did not take, both spec and work order removed from `docs/future/` with the still-live deferred items re-synthesized into a smaller document.
 
 Ordering note: staleness lands before the HTTP source even though the HTTP source is where it earns its keep, because a file source goes stale too (a deleted or unreadable file) and that is the cheaper case to test against. Stage 4 exercises it end-to-end.
 
@@ -982,7 +992,7 @@ Ordering note: staleness lands before the HTTP source even though the HTTP sourc
 
 | file | change |
 |---|---|
-| `keys/*` | new package, thirteen files |
+| `keys/*` | new package; the layout above lists thirteen responsibilities, and the file count lands higher once `camelcase-file-naming` splits them |
 | `gateway/keyStore.go`, `keyStore_test.go` | deleted |
 | `gateway/config.go` | `APIKeys *keys.Config`; `LoadConfig` binds from a pre-parsed map so `api_keys.keys` reaches the shared null normalizer; `expandEnv` loses its api_keys branch; `collectAgoraTunnels` gains key sources and loses its nil-Providers early return |
 | `gateway/gateway.go` | `keyStore *keys.Store`; `initKeyStore`; `Run`'s signal dispatch loop; `cleanup` closes the store first; four zrok init lines stop printing the share token and the serve line prints one only for a generated share, `NewAccess` call sites pass a label |

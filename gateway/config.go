@@ -7,6 +7,7 @@ import (
 
 	"github.com/michaelquigley/df/dd"
 	"github.com/openziti/llm-gateway/agora"
+	"github.com/openziti/llm-gateway/keys"
 	"github.com/openziti/llm-gateway/routing"
 )
 
@@ -17,7 +18,7 @@ type Config struct {
 	Providers *ProvidersConfig
 	Routing   *routing.RoutingConfig
 	Metrics   *MetricsConfig
-	APIKeys   *APIKeysConfig
+	APIKeys   *keys.Config
 	Tracing   *TracingConfig
 }
 
@@ -81,25 +82,41 @@ type MetricsConfig struct {
 	Enabled bool
 }
 
-type APIKeysConfig struct {
-	Enabled bool
-	Keys    []APIKeyEntry
-}
-
-type APIKeyEntry struct {
-	Name          string
-	Key           string
-	AllowedModels []string
-	AllowedRoutes []string
+type rawConfigDocument struct {
+	Fields map[string]any `dd:",+extra"`
 }
 
 func LoadConfig(path string) (*Config, error) {
-	cfg := &Config{}
-	if err := dd.MergeYAMLFile(cfg, path); err != nil {
+	raw, err := dd.NewYAMLFile[rawConfigDocument](path)
+	if err != nil {
 		return nil, err
 	}
+
+	var keyConfig *keys.Config
+	if value, exists := raw.Fields["api_keys"]; exists && value != nil {
+		block, ok := value.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("api_keys: expected mapping")
+		}
+		keyConfig, err = keys.BindConfig(block)
+		if err != nil {
+			return nil, err
+		}
+	}
+	// api_keys has already passed its strict subsystem bind. keep the main
+	// config's forgiving bind from decoding it a second, weaker way.
+	delete(raw.Fields, "api_keys")
+
+	cfg := &Config{}
+	if err := dd.Merge(cfg, raw.Fields); err != nil {
+		return nil, err
+	}
+	cfg.APIKeys = keyConfig
 	// resolve agora env vars + integration file before any agora field is read.
 	if err := agora.ResolveConfig(cfg.Agora); err != nil {
+		return nil, err
+	}
+	if err := keys.ResolveConfig(cfg.APIKeys); err != nil {
 		return nil, err
 	}
 	if err := cfg.expandEnv(); err != nil {
@@ -115,10 +132,9 @@ func LoadConfig(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// expandEnv resolves ${VAR} references in the config's secret-bearing string
-// fields once, at load, so every downstream gate reads the same expanded
-// values. a value written non-empty that resolves empty is a directed error
-// (an unset variable); a value left empty stays "not configured".
+// expandEnv resolves ${VAR} references in gateway-owned provider fields once at
+// load. subsystem-owned fields are resolved by their own ResolveConfig function
+// from LoadConfig so downstream gates still see one settled value.
 func (c *Config) expandEnv() error {
 	expand := func(field string, value *string) error {
 		if *value == "" {
@@ -158,19 +174,6 @@ func (c *Config) expandEnv() error {
 				if err := expand(field, &l.Endpoints[i].BaseURL); err != nil {
 					return err
 				}
-			}
-		}
-	}
-
-	if c.APIKeys != nil && c.APIKeys.Enabled {
-		for i := range c.APIKeys.Keys {
-			entry := &c.APIKeys.Keys[i]
-			field := fmt.Sprintf("api_keys.keys[%d] ('%s')", i, entry.Name)
-			if entry.Key == "" {
-				return fmt.Errorf("%s has an empty key", field)
-			}
-			if err := expand(field+" key", &entry.Key); err != nil {
-				return err
 			}
 		}
 	}

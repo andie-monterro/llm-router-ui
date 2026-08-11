@@ -2,9 +2,123 @@ package gateway
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/openziti/llm-gateway/keys"
 )
+
+func writeTestConfig(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestLoadConfigStrictAPIKeys(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  string
+		wantErr string
+		secret  string
+	}{
+		{
+			name: "valid nullable restrictions",
+			config: `api_keys:
+  enabled: true
+  keys:
+    - name: alice
+      key: sk-gw-alice
+      allowed_models: null
+      allowed_routes: null
+`,
+		},
+		{
+			name: "unknown block field",
+			config: `api_keys:
+  enabled: true
+  kyas: []
+`,
+			wantErr: "api_keys: unknown field 'kyas'",
+		},
+		{
+			name: "unknown record field",
+			config: `api_keys:
+  enabled: true
+  keys:
+    - name: alice
+      key: sk-gw-alice
+      allowed_model: gpt-*
+`,
+			wantErr: "api_keys.keys[0]: unknown field 'allowed_model'",
+		},
+		{
+			name: "coercible timestamp name",
+			config: `api_keys:
+  enabled: true
+  keys:
+    - name: 2026-01-01T00:00:00Z
+      key: sk-gw-alice
+`,
+			wantErr: "api_keys.keys[0].name",
+		},
+		{
+			name: "numeric key does not leak",
+			config: `api_keys:
+  enabled: true
+  keys:
+    - name: alice
+      key: 12345678
+`,
+			wantErr: "api_keys.keys[0].key",
+			secret:  "12345678",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := LoadConfig(writeTestConfig(t, tt.config))
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("LoadConfig() = %v, want nil", err)
+				}
+				if cfg.APIKeys == nil || len(cfg.APIKeys.Keys) != 1 || cfg.APIKeys.Keys[0].AllowedModels != nil {
+					t.Fatalf("strict key config = %#v", cfg.APIKeys)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("LoadConfig() = %v, want error containing %q", err, tt.wantErr)
+			}
+			if tt.secret != "" && strings.Contains(err.Error(), tt.secret) {
+				t.Errorf("LoadConfig() error exposed key material: %v", err)
+			}
+		})
+	}
+}
+
+func TestNewRejectsConfigKeyOutsideBearerGrammar(t *testing.T) {
+	cfg, err := LoadConfig(writeTestConfig(t, `api_keys:
+  enabled: true
+  keys:
+    - name: alice
+      key: "not valid"
+`))
+	if err != nil {
+		t.Fatalf("LoadConfig() = %v, want nil before store mapping", err)
+	}
+	_, err = New(cfg)
+	if err == nil || !strings.Contains(err.Error(), "api_keys.keys[0].key") {
+		t.Fatalf("New() = %v, want bearer-grammar error", err)
+	}
+	if strings.Contains(err.Error(), "not valid") {
+		t.Error("New() error exposed key material")
+	}
+}
 
 func TestExpandEnvSecrets(t *testing.T) {
 	t.Setenv("LLMGW_TEST_KEY", "sk-resolved")
@@ -14,10 +128,13 @@ func TestExpandEnvSecrets(t *testing.T) {
 		Providers: &ProvidersConfig{
 			OpenAI: &OpenAIConfig{APIKey: "${LLMGW_TEST_KEY}"},
 		},
-		APIKeys: &APIKeysConfig{
+		APIKeys: &keys.Config{
 			Enabled: true,
-			Keys:    []APIKeyEntry{{Name: "alice", Key: "${LLMGW_TEST_KEY}"}},
+			Keys:    []keys.EntryConfig{{Name: "alice", Key: "${LLMGW_TEST_KEY}"}},
 		},
+	}
+	if err := keys.ResolveConfig(cfg.APIKeys); err != nil {
+		t.Fatalf("keys.ResolveConfig() = %v, want nil", err)
 	}
 	if err := cfg.expandEnv(); err != nil {
 		t.Fatalf("expandEnv() = %v, want nil", err)
@@ -38,18 +155,21 @@ func TestExpandEnvSecrets(t *testing.T) {
 	}
 
 	// an enabled key entry with an empty key is a directed error.
-	cfg = &Config{APIKeys: &APIKeysConfig{
+	cfg = &Config{APIKeys: &keys.Config{
 		Enabled: true,
-		Keys:    []APIKeyEntry{{Name: "bob"}},
+		Keys:    []keys.EntryConfig{{Name: "bob"}},
 	}}
-	if err := cfg.expandEnv(); err == nil || !strings.Contains(err.Error(), "empty key") {
-		t.Fatalf("expandEnv() = %v, want empty-key error", err)
+	if err := keys.ResolveConfig(cfg.APIKeys); err == nil || !strings.Contains(err.Error(), "empty key") {
+		t.Fatalf("keys.ResolveConfig() = %v, want empty-key error", err)
 	}
 
 	// values left empty stay "not configured"; disabled key blocks are inert.
 	cfg = &Config{
 		Providers: &ProvidersConfig{OpenAI: &OpenAIConfig{}},
-		APIKeys:   &APIKeysConfig{Keys: []APIKeyEntry{{Name: "carol"}}},
+		APIKeys:   &keys.Config{Keys: []keys.EntryConfig{{Name: "carol"}}},
+	}
+	if err := keys.ResolveConfig(cfg.APIKeys); err != nil {
+		t.Fatalf("keys.ResolveConfig() = %v, want nil for disabled keys", err)
 	}
 	if err := cfg.expandEnv(); err != nil {
 		t.Fatalf("expandEnv() = %v, want nil for empty/disabled", err)
