@@ -191,6 +191,35 @@ func TestRunnerDispatchesResultsAndHoldsOnInvalid(t *testing.T) {
 	}
 }
 
+func TestRunnerRefreshFailureEscalatesAtTenPollIntervals(t *testing.T) {
+	logs := captureKeyLogs(t)
+	base := time.Date(2026, time.August, 11, 12, 0, 0, 0, time.UTC)
+	clock := &fakeKeyClock{now: base}
+	store := newEmptyStore(clock.time)
+	if err := store.registerSource(&staticSource{name: "managed"}, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	store.finishBoot()
+	t.Cleanup(func() { store.Close() })
+	if err := store.Install("managed", contributionFor(t, "alice", "sk-alice"), base); err != nil {
+		t.Fatal(err)
+	}
+	runner := newRunner(&resultSource{name: "managed", err: errors.New("unavailable")}, store, time.Minute)
+
+	clock.set(base.Add(10*time.Minute - time.Nanosecond))
+	runner.refresh(t.Context())
+	if text := logs.String(); !strings.Contains(text, "WARNING") || strings.Contains(text, "ERROR") {
+		t.Fatalf("pre-threshold failure log = %q, want warning", text)
+	}
+
+	logs.Reset()
+	clock.set(base.Add(10 * time.Minute))
+	runner.refresh(t.Context())
+	if text := logs.String(); !strings.Contains(text, "ERROR") {
+		t.Fatalf("threshold failure log = %q, want error", text)
+	}
+}
+
 func TestStoreCloseCancelsInFlightLoadWithoutFailureLog(t *testing.T) {
 	logs := captureKeyLogs(t)
 	store := newCompositionStore(t, "managed")

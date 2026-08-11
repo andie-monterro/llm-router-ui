@@ -241,9 +241,12 @@ func TestValidateConfig(t *testing.T) {
 		{"zero poll", &Config{Enabled: true, Sources: dynamics(fileDynamic("a", "/tmp/a", 0, nil))}, ".poll_interval must be positive"},
 		{"negative poll", &Config{Enabled: true, Sources: dynamics(fileDynamic("a", "/tmp/a", -time.Second, nil))}, ".poll_interval must be positive"},
 		{"negative staleness", &Config{Enabled: true, Keys: []EntryConfig{{Name: "a", Key: "sk-a"}}, Reload: &ReloadConfig{MaxStaleness: -time.Second}}, "max_staleness must not be negative"},
-		{"positive staleness deferred", &Config{Enabled: true, Keys: []EntryConfig{{Name: "a", Key: "sk-a"}}, Reload: &ReloadConfig{MaxStaleness: time.Hour}}, "only supports 0 until staleness enforcement is enabled"},
+		{"positive staleness without reloadable source", &Config{Enabled: true, Keys: []EntryConfig{{Name: "a", Key: "sk-a"}}, Reload: &ReloadConfig{MaxStaleness: time.Hour}}, ""},
+		{"positive staleness accommodates source", &Config{Enabled: true, Sources: dynamics(fileDynamic("a", "/tmp/a", time.Second, nil)), Reload: &ReloadConfig{MaxStaleness: 2 * time.Second}}, ""},
+		{"staleness equal to poll", &Config{Enabled: true, Sources: dynamics(fileDynamic("a", "/tmp/a", time.Second, nil)), Reload: &ReloadConfig{MaxStaleness: time.Second}}, "must be greater than"},
+		{"staleness below poll", &Config{Enabled: true, Sources: dynamics(fileDynamic("a", "/tmp/a", 2*time.Second, nil)), Reload: &ReloadConfig{MaxStaleness: time.Second}}, "must be greater than"},
 		{"disabled negative staleness", &Config{Reload: &ReloadConfig{MaxStaleness: -time.Second}}, "max_staleness must not be negative"},
-		{"disabled positive staleness", &Config{Reload: &ReloadConfig{MaxStaleness: time.Hour}}, "only supports 0 until staleness enforcement is enabled"},
+		{"disabled positive staleness", &Config{Reload: &ReloadConfig{MaxStaleness: time.Hour}}, ""},
 		{"optional source valid", &Config{Enabled: true, Sources: dynamics(fileDynamic("a", "/tmp/a", time.Second, &falseValue))}, ""},
 	}
 	for _, tt := range tests {

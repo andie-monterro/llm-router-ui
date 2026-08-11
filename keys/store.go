@@ -42,9 +42,17 @@ type Store struct {
 	order  []string
 	states map[string]*sourceState
 
-	snapshot atomic.Pointer[Snapshot]
-	clock    func() time.Time
-	booting  bool
+	snapshot     atomic.Pointer[Snapshot]
+	clock        func() time.Time
+	newTimer     deadlineTimerFactory
+	maxStaleness time.Duration
+	meters       *meters
+	booting      bool
+
+	deadlineSignal  chan struct{}
+	deadlineAt      time.Time
+	deadlineArmed   bool
+	deadlineVersion uint64
 
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -62,6 +70,10 @@ func NewStore(entries []EntryConfig) (*Store, error) {
 
 func newStore(entries []EntryConfig, clock func() time.Time) (*Store, error) {
 	store := newEmptyStore(clock)
+	if err := store.initMeters(); err != nil {
+		store.Close()
+		return nil, fmt.Errorf("initialize API key metrics: %w", err)
+	}
 	configSource := newConfigSource(entries)
 	if err := store.registerSource(configSource, 0); err != nil {
 		store.Close()
@@ -85,6 +97,13 @@ func NewStoreFromConfig(cfg *Config) (_ *Store, err error) {
 		return nil, err
 	}
 	store := newEmptyStore(time.Now)
+	if cfg.Reload != nil {
+		store.maxStaleness = cfg.Reload.MaxStaleness
+	}
+	if err := store.initMeters(); err != nil {
+		store.Close()
+		return nil, fmt.Errorf("initialize API key metrics: %w", err)
+	}
 	defer func() {
 		if err != nil {
 			store.Close()
@@ -144,13 +163,21 @@ func (s *Store) bootRecordCounts() []string {
 }
 
 func newEmptyStore(clock func() time.Time) *Store {
+	return newEmptyStoreWithTimer(clock, func(after time.Duration) deadlineTimer {
+		return newSystemDeadlineTimer(after)
+	})
+}
+
+func newEmptyStoreWithTimer(clock func() time.Time, newTimer deadlineTimerFactory) *Store {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Store{
-		states:  make(map[string]*sourceState),
-		clock:   clock,
-		booting: true,
-		ctx:     ctx,
-		cancel:  cancel,
+		states:         make(map[string]*sourceState),
+		clock:          clock,
+		newTimer:       newTimer,
+		booting:        true,
+		deadlineSignal: make(chan struct{}, 1),
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 }
 
@@ -214,10 +241,14 @@ func (s *Store) Install(source string, contribution *Contribution, at time.Time)
 	if !exists {
 		return fmt.Errorf("key source '%s' is not registered", source)
 	}
+	wasExcluded := state.excluded
 	state.contribution = owned
 	state.loadedAt = at
 	state.excluded = false
 	s.recompose()
+	if wasExcluded {
+		dl.Infof("key source '%s' reinstated after a successful refresh", source)
+	}
 	return nil
 }
 
@@ -237,6 +268,9 @@ func (s *Store) Touch(source string, at time.Time) error {
 	state.excluded = false
 	if wasExcluded {
 		s.recompose()
+		dl.Infof("key source '%s' reinstated after a successful refresh", source)
+	} else {
+		s.armDeadlineLocked()
 	}
 	return nil
 }
@@ -301,9 +335,17 @@ func (s *Store) recompose() {
 		Generation:    generation,
 		byDigest:      next,
 	})
+	s.armDeadlineLocked()
 }
 
 func (s *Store) start(sources []reloadableSource) {
+	if s.maxStaleness > 0 {
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.runStalenessEvaluator()
+		}()
+	}
 	for _, item := range sources {
 		runner := newRunner(item.source, s, item.interval)
 		s.runners = append(s.runners, runner)
@@ -349,6 +391,11 @@ func (s *Store) Close() error {
 		s.wg.Wait()
 		for _, source := range s.closeable {
 			if err := source.close(); err != nil && closeErr == nil {
+				closeErr = err
+			}
+		}
+		if s.meters != nil {
+			if err := s.meters.close(); err != nil && closeErr == nil {
 				closeErr = err
 			}
 		}

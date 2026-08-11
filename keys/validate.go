@@ -14,9 +14,6 @@ func Validate(cfg *Config) error {
 	if cfg.Reload != nil && cfg.Reload.MaxStaleness < 0 {
 		return fmt.Errorf("api_keys.reload.max_staleness must not be negative")
 	}
-	if cfg.Reload != nil && cfg.Reload.MaxStaleness > 0 {
-		return fmt.Errorf("api_keys.reload.max_staleness only supports 0 until staleness enforcement is enabled")
-	}
 	if !cfg.Enabled {
 		if len(cfg.Sources) > 0 {
 			return fmt.Errorf("api_keys.sources requires api_keys.enabled: true")
@@ -48,6 +45,9 @@ func Validate(cfg *Config) error {
 		}
 		if strings.TrimSpace(source.Path) == "" {
 			return fmt.Errorf("api_keys.sources[%d].path must not be empty", i)
+		}
+		if cfg.Reload != nil && cfg.Reload.MaxStaleness > 0 && cfg.Reload.MaxStaleness <= source.PollInterval {
+			return fmt.Errorf("api_keys.reload.max_staleness must be greater than api_keys.sources[%d].poll_interval", i)
 		}
 	}
 	return nil
