@@ -136,6 +136,31 @@ func TestResolveConfig(t *testing.T) {
 	if err := ResolveConfig(disabled); err != nil {
 		t.Fatalf("ResolveConfig(disabled) = %v, want nil", err)
 	}
+
+	t.Setenv("LLMGW_KEYS_URL", "https://keys.internal")
+	t.Setenv("LLMGW_KEYS_TOKEN", "management-token")
+	httpCfg := &Config{Enabled: true, Sources: dynamics(&HTTPSourceConfig{
+		BaseURL: "${LLMGW_KEYS_URL}", Token: "${LLMGW_KEYS_TOKEN}",
+	})}
+	if err := ResolveConfig(httpCfg); err != nil {
+		t.Fatalf("ResolveConfig(http) = %v, want nil", err)
+	}
+	httpSource := httpCfg.Sources[0].(*HTTPSourceConfig)
+	if httpSource.BaseURL != "https://keys.internal" || httpSource.Token != "management-token" {
+		t.Fatalf("resolved HTTP source = %#v", httpSource)
+	}
+	for _, test := range []struct {
+		field string
+		cfg   *HTTPSourceConfig
+	}{
+		{"base_url", &HTTPSourceConfig{BaseURL: "${LLMGW_KEYS_UNSET}"}},
+		{"token", &HTTPSourceConfig{BaseURL: "https://keys.internal", Token: "${LLMGW_KEYS_UNSET}"}},
+	} {
+		err := ResolveConfig(&Config{Enabled: true, Sources: dynamics(test.cfg)})
+		if err == nil || !strings.Contains(err.Error(), test.field) || strings.Contains(err.Error(), "LLMGW_KEYS_UNSET") {
+			t.Fatalf("ResolveConfig(%s) = %v, want safe directed error", test.field, err)
+		}
+	}
 }
 
 func TestBindConfigFileSources(t *testing.T) {
@@ -171,6 +196,39 @@ func TestBindConfigFileSources(t *testing.T) {
 	}
 	if first.Name != "file[0]" || second.Name != "managed" {
 		t.Errorf("source identities = %q / %q", first.Name, second.Name)
+	}
+}
+
+func TestBindConfigHTTPSources(t *testing.T) {
+	raw := map[string]any{
+		"enabled": true,
+		"sources": []any{
+			map[string]any{"type": "http", "base_url": "https://keys.internal"},
+			map[string]any{
+				"type": "http", "name": "managed", "base_url": "https://other.internal",
+				"token": "secret", "agora_tunnel": "keys", "zrok_share_token": "share",
+				"poll_interval": "45s", "timeout": "7s", "required": false,
+			},
+		},
+	}
+	cfg, err := BindConfig(raw)
+	if err != nil {
+		t.Fatalf("BindConfig() = %v, want nil", err)
+	}
+	first, ok := cfg.Sources[0].(*HTTPSourceConfig)
+	if !ok || first.PollInterval != defaultPollInterval || first.Timeout != defaultHTTPTimeout || !first.required() {
+		t.Fatalf("default HTTP source = %#v", cfg.Sources[0])
+	}
+	second := cfg.Sources[1].(*HTTPSourceConfig)
+	if second.PollInterval != 45*time.Second || second.Timeout != 7*time.Second || second.required() ||
+		second.Token != "secret" || second.AgoraTunnel != "keys" || second.ZrokShareToken != "share" {
+		t.Fatalf("explicit HTTP source = %#v", second)
+	}
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("Validate() = %v, want nil", err)
+	}
+	if first.Name != "http[0]" || second.Name != "managed" {
+		t.Fatalf("source identities = %q / %q", first.Name, second.Name)
 	}
 }
 
@@ -211,6 +269,26 @@ func TestBindConfigRejectsInvalidSourceSurface(t *testing.T) {
 			"expected duration string",
 		},
 		{
+			"unknown HTTP source field",
+			map[string]any{"enabled": true, "sources": []any{map[string]any{"type": "http", "base_url": "https://keys", "tokne": "secret"}}},
+			"api_keys.sources[0]: unknown field 'tokne'",
+		},
+		{
+			"bare HTTP timeout",
+			map[string]any{"enabled": true, "sources": []any{map[string]any{"type": "http", "base_url": "https://keys", "timeout": 5}}},
+			"expected duration string",
+		},
+		{
+			"fractional HTTP timeout",
+			map[string]any{"enabled": true, "sources": []any{map[string]any{"type": "http", "base_url": "https://keys", "timeout": 1.5}}},
+			"expected duration string",
+		},
+		{
+			"HTTP token type does not leak",
+			map[string]any{"enabled": true, "sources": []any{map[string]any{"type": "http", "base_url": "https://keys", "token": 12345678}}},
+			"token: invalid value",
+		},
+		{
 			"bare nonzero max staleness",
 			map[string]any{"enabled": true, "keys": []any{map[string]any{"name": "a", "key": "sk-a"}}, "reload": map[string]any{"max_staleness": 3600}},
 			"expected duration string",
@@ -223,6 +301,13 @@ func TestBindConfigRejectsInvalidSourceSurface(t *testing.T) {
 				t.Fatalf("BindConfig() = %v, want error containing %q", err, tt.wantErr)
 			}
 		})
+	}
+
+	_, err := BindConfig(map[string]any{"enabled": true, "sources": []any{
+		map[string]any{"type": "http", "base_url": "https://keys", "token": 12345678},
+	}})
+	if err == nil || strings.Contains(err.Error(), "12345678") {
+		t.Fatalf("BindConfig() HTTP credential type error was not sanitized: %v", err)
 	}
 }
 
@@ -237,6 +322,7 @@ func TestValidateConfig(t *testing.T) {
 		{"disabled sources", &Config{Sources: dynamics(fileDynamic("a", "/tmp/a", time.Second, nil))}, "requires api_keys.enabled"},
 		{"reserved name", &Config{Enabled: true, Sources: dynamics(fileDynamic("config", "/tmp/a", time.Second, nil))}, "reserved or duplicated"},
 		{"duplicate name", &Config{Enabled: true, Sources: dynamics(fileDynamic("same", "/tmp/a", time.Second, nil), fileDynamic("same", "/tmp/b", time.Second, nil))}, "reserved or duplicated"},
+		{"duplicate name across source types", &Config{Enabled: true, Sources: dynamics(fileDynamic("same", "/tmp/a", time.Second, nil), httpDynamic("same", "https://keys", time.Second, time.Second, nil))}, "reserved or duplicated"},
 		{"empty path", &Config{Enabled: true, Sources: dynamics(fileDynamic("a", " ", time.Second, nil))}, ".path must not be empty"},
 		{"zero poll", &Config{Enabled: true, Sources: dynamics(fileDynamic("a", "/tmp/a", 0, nil))}, ".poll_interval must be positive"},
 		{"negative poll", &Config{Enabled: true, Sources: dynamics(fileDynamic("a", "/tmp/a", -time.Second, nil))}, ".poll_interval must be positive"},
@@ -248,6 +334,14 @@ func TestValidateConfig(t *testing.T) {
 		{"disabled negative staleness", &Config{Reload: &ReloadConfig{MaxStaleness: -time.Second}}, "max_staleness must not be negative"},
 		{"disabled positive staleness", &Config{Reload: &ReloadConfig{MaxStaleness: time.Hour}}, ""},
 		{"optional source valid", &Config{Enabled: true, Sources: dynamics(fileDynamic("a", "/tmp/a", time.Second, &falseValue))}, ""},
+		{"HTTP empty base URL", &Config{Enabled: true, Sources: dynamics(httpDynamic("a", "", time.Second, time.Second, nil))}, "base_url"},
+		{"HTTP relative base URL", &Config{Enabled: true, Sources: dynamics(httpDynamic("a", "/keys", time.Second, time.Second, nil))}, "base_url"},
+		{"HTTP unsupported scheme", &Config{Enabled: true, Sources: dynamics(httpDynamic("a", "ftp://keys", time.Second, time.Second, nil))}, "base_url"},
+		{"HTTP zero timeout", &Config{Enabled: true, Sources: dynamics(httpDynamic("a", "https://keys", time.Second, 0, nil))}, ".timeout must be positive"},
+		{"HTTP negative timeout", &Config{Enabled: true, Sources: dynamics(httpDynamic("a", "https://keys", time.Second, -time.Second, nil))}, ".timeout must be positive"},
+		{"HTTP staleness accommodates poll and timeout", &Config{Enabled: true, Sources: dynamics(httpDynamic("a", "https://keys", 30*time.Second, 5*time.Second, nil)), Reload: &ReloadConfig{MaxStaleness: 36 * time.Second}}, ""},
+		{"HTTP staleness equal to poll and timeout", &Config{Enabled: true, Sources: dynamics(httpDynamic("a", "https://keys", 30*time.Second, 5*time.Second, nil)), Reload: &ReloadConfig{MaxStaleness: 35 * time.Second}}, "plus timeout"},
+		{"HTTP staleness below poll and timeout", &Config{Enabled: true, Sources: dynamics(httpDynamic("a", "https://keys", 30*time.Second, 5*time.Second, nil)), Reload: &ReloadConfig{MaxStaleness: 31 * time.Second}}, "plus timeout"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -265,7 +359,7 @@ func TestValidateConfig(t *testing.T) {
 	}
 }
 
-func dynamics(values ...*FileSourceConfig) []dd.Dynamic {
+func dynamics(values ...dd.Dynamic) []dd.Dynamic {
 	result := make([]dd.Dynamic, 0, len(values))
 	for _, value := range values {
 		result = append(result, value)
@@ -275,4 +369,10 @@ func dynamics(values ...*FileSourceConfig) []dd.Dynamic {
 
 func fileDynamic(name, path string, interval time.Duration, required *bool) *FileSourceConfig {
 	return &FileSourceConfig{Name: name, Path: path, PollInterval: interval, Required: required}
+}
+
+func httpDynamic(name, baseURL string, pollInterval, timeout time.Duration, required *bool) *HTTPSourceConfig {
+	return &HTTPSourceConfig{
+		Name: name, BaseURL: baseURL, PollInterval: pollInterval, Timeout: timeout, Required: required,
+	}
 }

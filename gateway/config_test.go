@@ -141,6 +141,43 @@ func TestLoadConfigFileKeySource(t *testing.T) {
 	}
 }
 
+func TestLoadConfigHTTPKeySource(t *testing.T) {
+	t.Setenv("LLMGW_KEY_API", "https://keys.internal")
+	t.Setenv("LLMGW_KEY_API_TOKEN", "management-token")
+	cfg, err := LoadConfig(writeTestConfig(t, `api_keys:
+  enabled: true
+  sources:
+    - type: http
+      base_url: ${LLMGW_KEY_API}
+      token: ${LLMGW_KEY_API_TOKEN}
+`))
+	if err != nil {
+		t.Fatalf("LoadConfig() = %v, want nil", err)
+	}
+	if cfg.APIKeys == nil || len(cfg.APIKeys.Sources) != 1 {
+		t.Fatalf("api key config = %#v", cfg.APIKeys)
+	}
+	source, ok := cfg.APIKeys.Sources[0].(*keys.HTTPSourceConfig)
+	if !ok || source.Name != "http[0]" || source.BaseURL != "https://keys.internal" ||
+		source.Token != "management-token" || source.PollInterval != 30*time.Second || source.Timeout != 5*time.Second {
+		t.Fatalf("HTTP source = %#v", cfg.APIKeys.Sources[0])
+	}
+}
+
+func TestLoadConfigRejectsUnsetHTTPKeySourceValue(t *testing.T) {
+	_, err := LoadConfig(writeTestConfig(t, `api_keys:
+  enabled: true
+  sources:
+    - type: http
+      base_url: https://keys.internal
+      token: ${LLMGW_UNSET_KEY_API_TOKEN}
+`))
+	if err == nil || !strings.Contains(err.Error(), "api_keys.sources[0].token resolves empty") ||
+		strings.Contains(err.Error(), "LLMGW_UNSET_KEY_API_TOKEN") {
+		t.Fatalf("LoadConfig() = %v, want safe token expansion error", err)
+	}
+}
+
 func TestLoadConfigRejectsInvalidFileKeySource(t *testing.T) {
 	tests := []struct {
 		name    string

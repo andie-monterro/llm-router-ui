@@ -262,12 +262,10 @@ func (c *Config) AgoraPublishEnabled() bool {
 }
 
 // collectAgoraTunnels returns the unique, trimmed agora_tunnel names for only
-// the providers and endpoints initProviders will actually initialize — no
-// phantom attachments. OpenAI/Anthropic count only when configured (the same
-// APIKey gate initProviders uses); Local contributes its endpoint tunnels in
-// multi mode and its single tunnel only in single mode.
+// the providers, endpoints, and key sources their init paths will construct —
+// no phantom attachments.
 func collectAgoraTunnels(cfg *Config) []string {
-	if cfg == nil || cfg.Providers == nil {
+	if cfg == nil {
 		return nil
 	}
 	seen := map[string]struct{}{}
@@ -284,19 +282,28 @@ func collectAgoraTunnels(cfg *Config) []string {
 		tunnels = append(tunnels, name)
 	}
 
-	if p := cfg.Providers.OpenAI; p != nil && p.APIKey != "" {
-		add(p.AgoraTunnel)
-	}
-	if p := cfg.Providers.Anthropic; p != nil && p.APIKey != "" {
-		add(p.AgoraTunnel)
-	}
-	if l := cfg.Providers.Local; l != nil {
-		if len(l.Endpoints) > 0 {
-			for _, ep := range l.Endpoints {
-				add(ep.AgoraTunnel)
+	if cfg.Providers != nil {
+		if p := cfg.Providers.OpenAI; p != nil && p.APIKey != "" {
+			add(p.AgoraTunnel)
+		}
+		if p := cfg.Providers.Anthropic; p != nil && p.APIKey != "" {
+			add(p.AgoraTunnel)
+		}
+		if l := cfg.Providers.Local; l != nil {
+			if len(l.Endpoints) > 0 {
+				for _, ep := range l.Endpoints {
+					add(ep.AgoraTunnel)
+				}
+			} else {
+				add(l.AgoraTunnel)
 			}
-		} else {
-			add(l.AgoraTunnel)
+		}
+	}
+	if cfg.APIKeys != nil && cfg.APIKeys.Enabled {
+		for _, dynamic := range cfg.APIKeys.Sources {
+			if source, ok := dynamic.(*keys.HTTPSourceConfig); ok {
+				add(source.AgoraTunnel)
+			}
 		}
 	}
 	return tunnels
@@ -308,7 +315,7 @@ func collectAgoraTunnels(cfg *Config) []string {
 func (c *Config) validateAgora() error {
 	// (a) dial side — a per-site agora_tunnel is meaningless without the subsystem.
 	if len(collectAgoraTunnels(c)) > 0 && (c.Agora == nil || !c.Agora.Enabled) {
-		return fmt.Errorf("agora_tunnel set on a provider/endpoint requires agora.enabled: true")
+		return fmt.Errorf("agora_tunnel set on a provider, endpoint, or key source requires agora.enabled: true")
 	}
 	// (b) serve side (symmetric) — serve.enabled without enabled would silently
 	// fall back to the plaintext local listener.

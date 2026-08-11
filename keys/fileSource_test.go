@@ -111,7 +111,7 @@ func TestFileSourceAtomicRenameRefreshesStore(t *testing.T) {
 	cfg := &Config{Enabled: true, Sources: dynamics(&FileSourceConfig{
 		Name: "managed", Path: path, Watch: true, PollInterval: time.Hour,
 	})}
-	store, err := NewStoreFromConfig(cfg)
+	store, err := NewStoreFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestFileSourceConfigMapSymlinkSwapRefreshesStore(t *testing.T) {
 
 	store, err := NewStoreFromConfig(&Config{Enabled: true, Sources: dynamics(&FileSourceConfig{
 		Name: "managed", Path: path, Watch: true, PollInterval: time.Hour,
-	})})
+	})}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestFileRefreshFailureHoldsLastKnownGood(t *testing.T) {
 	cfg := &Config{Enabled: true, Sources: dynamics(&FileSourceConfig{
 		Name: "managed", Path: path, PollInterval: time.Hour,
 	})}
-	store, err := NewStoreFromConfig(cfg)
+	store, err := NewStoreFromConfig(cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestFileSourceBootRequiredPolicy(t *testing.T) {
 	required := &Config{Enabled: true, Sources: dynamics(&FileSourceConfig{
 		Name: "required", Path: missing, PollInterval: time.Hour,
 	})}
-	if _, err := NewStoreFromConfig(required); err == nil || !strings.Contains(err.Error(), "at boot") {
+	if _, err := NewStoreFromConfig(required, nil); err == nil || !strings.Contains(err.Error(), "at boot") {
 		t.Fatalf("NewStoreFromConfig(required) = %v, want boot error", err)
 	}
 
@@ -223,7 +223,7 @@ func TestFileSourceBootRequiredPolicy(t *testing.T) {
 			Name: "optional", Path: missing, PollInterval: time.Hour, Required: &falseValue,
 		}),
 	}
-	store, err := NewStoreFromConfig(optional)
+	store, err := NewStoreFromConfig(optional, nil)
 	if err != nil {
 		t.Fatalf("NewStoreFromConfig(optional) = %v, want nil", err)
 	}
@@ -239,7 +239,7 @@ func TestBootCompositionDoesNotWarnForTransientEmptyConfigContribution(t *testin
 	writeKeyFile(t, path, keyFile("alice", "sk-alice"))
 	store, err := NewStoreFromConfig(&Config{Enabled: true, Sources: dynamics(&FileSourceConfig{
 		Name: "managed", Path: path, PollInterval: time.Hour,
-	})})
+	})}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

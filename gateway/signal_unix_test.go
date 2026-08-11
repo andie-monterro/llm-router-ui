@@ -41,7 +41,7 @@ func TestDispatchReloadSignalTriggersKeySources(t *testing.T) {
 		Sources: []dd.Dynamic{&keys.FileSourceConfig{
 			Name: "managed", Path: path, PollInterval: time.Hour,
 		}},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -34,6 +35,10 @@ type reloadableSource struct {
 	interval time.Duration
 	required bool
 }
+
+// HTTPClientFactory supplies the borrowed client for an HTTP key source.
+// transport construction remains owned by the gateway.
+type HTTPClientFactory func(*HTTPSourceConfig) (*http.Client, error)
 
 // Store owns source contributions, composition, and the resident snapshot. it
 // is the only key lookup surface used by the data plane.
@@ -87,9 +92,9 @@ func newStore(entries []EntryConfig, clock func() time.Time) (*Store, error) {
 	return store, nil
 }
 
-// NewStoreFromConfig assembles config and file contributions, performs every
-// initial load, and only then starts reload loops.
-func NewStoreFromConfig(cfg *Config) (_ *Store, err error) {
+// NewStoreFromConfig assembles config, file, and HTTP contributions, performs
+// every initial load, and only then starts reload loops.
+func NewStoreFromConfig(cfg *Config, clientForHTTP HTTPClientFactory) (_ *Store, err error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("api key config is required")
 	}
@@ -120,19 +125,44 @@ func NewStoreFromConfig(cfg *Config) (_ *Store, err error) {
 
 	reloadables := make([]reloadableSource, 0, len(cfg.Sources))
 	for _, dynamic := range cfg.Sources {
-		fileCfg := dynamic.(*FileSourceConfig)
-		source, sourceErr := newFileSource(fileCfg)
-		if sourceErr != nil {
-			return nil, sourceErr
+		var source Source
+		var interval time.Duration
+		var required bool
+		switch sourceCfg := dynamic.(type) {
+		case *FileSourceConfig:
+			fileSource, sourceErr := newFileSource(sourceCfg)
+			if sourceErr != nil {
+				return nil, sourceErr
+			}
+			store.closeable = append(store.closeable, fileSource)
+			source = fileSource
+			interval = sourceCfg.PollInterval
+			required = sourceCfg.required()
+		case *HTTPSourceConfig:
+			if clientForHTTP == nil {
+				return nil, fmt.Errorf("key source '%s' requires an injected HTTP client", sourceCfg.Name)
+			}
+			client, clientErr := clientForHTTP(sourceCfg)
+			if clientErr != nil {
+				return nil, fmt.Errorf("key source '%s': create HTTP client: %w", sourceCfg.Name, clientErr)
+			}
+			httpSource, sourceErr := newHTTPSource(sourceCfg, client)
+			if sourceErr != nil {
+				return nil, sourceErr
+			}
+			source = httpSource
+			interval = sourceCfg.PollInterval
+			required = sourceCfg.required()
+		default:
+			return nil, fmt.Errorf("unsupported key source config %T", dynamic)
 		}
-		store.closeable = append(store.closeable, source)
-		if err := store.registerSource(source, fileCfg.PollInterval); err != nil {
+		if err := store.registerSource(source, interval); err != nil {
 			return nil, err
 		}
 		reloadables = append(reloadables, reloadableSource{
 			source:   source,
-			interval: fileCfg.PollInterval,
-			required: fileCfg.required(),
+			interval: interval,
+			required: required,
 		})
 	}
 

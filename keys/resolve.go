@@ -24,5 +24,29 @@ func ResolveConfig(cfg *Config) error {
 		}
 		entry.Key = expanded
 	}
+	for i, dynamic := range cfg.Sources {
+		source, ok := dynamic.(*HTTPSourceConfig)
+		if !ok {
+			continue
+		}
+		if err := expandSourceField(i, "base_url", &source.BaseURL); err != nil {
+			return err
+		}
+		if err := expandSourceField(i, "token", &source.Token); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func expandSourceField(index int, field string, value *string) error {
+	if *value == "" {
+		return nil
+	}
+	expanded := os.ExpandEnv(*value)
+	if expanded == "" {
+		return fmt.Errorf("api_keys.sources[%d].%s resolves empty (unset environment variable?)", index, field)
+	}
+	*value = expanded
 	return nil
 }

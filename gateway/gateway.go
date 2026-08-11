@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -31,14 +32,16 @@ type Gateway struct {
 	openaiHTTPClient *http.Client
 	agora            *agora.Subsystem
 	agoraDial        func(string) (*http.Client, error)
+	createAccess     func(string) (*Access, error)
 	meters           *meters
 	metricsHandler   http.Handler
 }
 
 func New(cfg *Config) (_ *Gateway, err error) {
 	g := &Gateway{
-		cfg:       cfg,
-		providers: make(map[providers.ProviderType]providers.Provider),
+		cfg:          cfg,
+		providers:    make(map[providers.ProviderType]providers.Provider),
+		createAccess: NewAccess,
 	}
 	defer func() {
 		if err != nil {
@@ -112,11 +115,37 @@ func New(cfg *Config) (_ *Gateway, err error) {
 }
 
 func (g *Gateway) initKeyStore() (*keys.Store, error) {
-	store, err := keys.NewStoreFromConfig(g.cfg.APIKeys)
+	store, err := keys.NewStoreFromConfig(g.cfg.APIKeys, g.keySourceHTTPClient)
 	if err != nil {
 		return nil, fmt.Errorf("initialize API key store: %w", err)
 	}
 	return store, nil
+}
+
+func (g *Gateway) keySourceHTTPClient(source *keys.HTTPSourceConfig) (*http.Client, error) {
+	agoraTunnel := strings.TrimSpace(source.AgoraTunnel)
+	if agoraTunnel != "" {
+		if source.ZrokShareToken != "" {
+			dl.Warnf("key source '%s' configures both agora_tunnel and zrok_share_token; using agora", source.Name)
+		}
+		if g.agoraDial == nil {
+			return nil, fmt.Errorf("key source '%s' requires the agora dialer", source.Name)
+		}
+		return g.agoraDial(agoraTunnel)
+	}
+	if source.ZrokShareToken != "" {
+		factory := g.createAccess
+		if factory == nil {
+			factory = NewAccess
+		}
+		access, err := factory(source.ZrokShareToken)
+		if err != nil {
+			return nil, err
+		}
+		g.accesses = append(g.accesses, access)
+		return access.HTTPClient(), nil
+	}
+	return http.DefaultClient, nil
 }
 
 func (g *Gateway) initProviders() error {

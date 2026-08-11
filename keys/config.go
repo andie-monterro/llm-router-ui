@@ -9,7 +9,10 @@ import (
 	"github.com/michaelquigley/df/dd"
 )
 
-const defaultPollInterval = 30 * time.Second
+const (
+	defaultPollInterval = 30 * time.Second
+	defaultHTTPTimeout  = 5 * time.Second
+)
 
 // Config describes inline API keys and their ordered reloadable sources.
 type Config struct {
@@ -47,6 +50,29 @@ func (c *FileSourceConfig) required() bool {
 	return c.Required == nil || *c.Required
 }
 
+// HTTPSourceConfig describes one reloadable HTTP key API.
+type HTTPSourceConfig struct {
+	Name           string
+	BaseURL        string        `dd:"base_url"`
+	Token          string        `dd:"token,+secret"`
+	AgoraTunnel    string        `dd:"agora_tunnel"`
+	ZrokShareToken string        `dd:"zrok_share_token,+secret"`
+	PollInterval   time.Duration `dd:"poll_interval"`
+	Timeout        time.Duration
+	Required       *bool
+	Extra          map[string]any `dd:",+extra"`
+}
+
+func (c *HTTPSourceConfig) Type() string { return "http" }
+
+func (c *HTTPSourceConfig) ToMap() (map[string]any, error) {
+	return dd.Unbind(c)
+}
+
+func (c *HTTPSourceConfig) required() bool {
+	return c.Required == nil || *c.Required
+}
+
 // EntryConfig is the inline-config wire form of a key. the domain Record is
 // produced only after the plaintext key has been expanded and validated.
 type EntryConfig struct {
@@ -70,6 +96,7 @@ func BindConfig(raw map[string]any) (*Config, error) {
 	opts := dd.Strict()
 	opts.DynamicBinders = map[string]func(map[string]any) (dd.Dynamic, error){
 		"file": bindFileSourceConfig,
+		"http": bindHTTPSourceConfig,
 	}
 	if err := dd.Bind(cfg, raw, opts); err != nil {
 		return nil, SanitizeDecodeError(err)
@@ -88,11 +115,16 @@ func BindConfig(raw map[string]any) (*Config, error) {
 		}
 	}
 	for i, dynamic := range cfg.Sources {
-		source, ok := dynamic.(*FileSourceConfig)
-		if !ok {
+		var extra map[string]any
+		switch source := dynamic.(type) {
+		case *FileSourceConfig:
+			extra = source.Extra
+		case *HTTPSourceConfig:
+			extra = source.Extra
+		default:
 			return nil, fmt.Errorf("api_keys.sources[%d]: unsupported source config %T", i, dynamic)
 		}
-		if err := rejectExtrasExcept(fmt.Sprintf("api_keys.sources[%d]", i), source.Extra, "type"); err != nil {
+		if err := rejectExtrasExcept(fmt.Sprintf("api_keys.sources[%d]", i), extra, "type"); err != nil {
 			return nil, err
 		}
 	}
@@ -101,6 +133,21 @@ func BindConfig(raw map[string]any) (*Config, error) {
 
 func bindFileSourceConfig(raw map[string]any) (dd.Dynamic, error) {
 	cfg := &FileSourceConfig{PollInterval: defaultPollInterval}
+	if err := dd.Bind(cfg, raw, dd.Strict()); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+func bindHTTPSourceConfig(raw map[string]any) (dd.Dynamic, error) {
+	for _, field := range []string{"token", "zrok_share_token"} {
+		if value, exists := raw[field]; exists {
+			if _, ok := value.(string); !ok {
+				return nil, fmt.Errorf("%s: invalid value", field)
+			}
+		}
+	}
+	cfg := &HTTPSourceConfig{PollInterval: defaultPollInterval, Timeout: defaultHTTPTimeout}
 	if err := dd.Bind(cfg, raw, dd.Strict()); err != nil {
 		return nil, err
 	}

@@ -180,3 +180,131 @@ func TestDecodeYAMLTimestampNamesQuotingFix(t *testing.T) {
 		t.Fatalf("operator error leaked decoder jargon: %v", err)
 	}
 }
+
+func TestDecodeJSONContribution(t *testing.T) {
+	data := []byte(`{
+  "version": 1,
+  "count": 2,
+  "keys": [
+    {
+      "name": "alice",
+      "key": "sk-alice",
+      "allowed_models": ["gpt-*"],
+      "allowed_routes": ["coding"],
+      "expires_at": "2026-12-31T23:59:59Z"
+    },
+    {
+      "name": "bob",
+      "key_sha256": "6F8F57715090DA2632453988D9A1501B157399D95979A0D0C77FF9884D7693E1"
+    }
+  ]
+}`)
+	contribution, err := decodeJSONContribution(data)
+	if err != nil {
+		t.Fatalf("decodeJSONContribution() = %v, want nil", err)
+	}
+	if contribution.SchemaVersion != 1 || len(contribution.Records) != 2 ||
+		contribution.Records[0].Digest != sha256.Sum256([]byte("sk-alice")) {
+		t.Fatalf("contribution = %#v", contribution)
+	}
+}
+
+func TestDecodeJSONNullableRestrictions(t *testing.T) {
+	contribution, err := decodeJSONContribution([]byte(`{
+  "version": 1,
+  "count": 1,
+  "keys": [{
+    "name": "alice",
+    "key": "sk-alice",
+    "allowed_models": null,
+    "allowed_routes": null,
+    "expires_at": null
+  }]
+}`))
+	if err != nil {
+		t.Fatalf("decodeJSONContribution() = %v, want nil", err)
+	}
+	record := contribution.Records[0]
+	if record.AllowedModels != nil || record.AllowedRoutes != nil || record.ExpiresAt != nil {
+		t.Fatalf("nullable fields = %#v / %#v / %v", record.AllowedModels, record.AllowedRoutes, record.ExpiresAt)
+	}
+}
+
+func TestDecodeJSONRejectsInvalidDocuments(t *testing.T) {
+	tests := []struct {
+		name    string
+		doc     string
+		wantErr string
+	}{
+		{"unknown envelope field", `{"version":1,"count":0,"keys":[],"tyop":true}`, "unknown field"},
+		{"unknown record field", `{"version":1,"count":1,"keys":[{"name":"alice","key":"sk-alice","allowed_model":"*"}]}`, "keys[0].allowed_model"},
+		{"duplicate field", `{"version":1,"count":1,"keys":[{"name":"alice","name":"bob","key":"sk-alice"}]}`, "keys[0]"},
+		{"trailing data", `{"version":1,"count":0,"keys":[]} true`, "trailing"},
+		{"missing version", `{"count":0,"keys":[]}`, "required field"},
+		{"unknown version", `{"version":2,"count":0,"keys":[]}`, "unsupported key schema version 2"},
+		{"missing keys", `{"version":1,"count":0}`, "required field"},
+		{"null keys", `{"version":1,"count":0,"keys":null}`, "keys"},
+		{"missing count", `{"version":1,"keys":[]}`, "count is required"},
+		{"null count", `{"version":1,"count":null,"keys":[]}`, "count is required"},
+		{"count mismatch", `{"version":1,"count":2,"keys":[]}`, "count is 2 but keys contains 0"},
+		{"null name", `{"version":1,"count":1,"keys":[{"name":null,"key":"sk-alice"}]}`, "keys[0].name"},
+		{"null key", `{"version":1,"count":1,"keys":[{"name":"alice","key":null}]}`, "keys[0].key"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := decodeJSONContribution([]byte(test.doc))
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("decodeJSONContribution() = %v, want error containing %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestDecodeJSONKeyMaterialPresence(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	tests := []struct {
+		name    string
+		fields  string
+		wantErr string
+	}{
+		{"neither", "", "exactly one"},
+		{"key only", `,"key":"sk-alice"`, ""},
+		{"digest only", `,"key_sha256":"` + digest + `"`, ""},
+		{"both", `,"key":"sk-alice","key_sha256":"` + digest + `"`, "must not both"},
+		{"empty key with digest", `,"key":"","key_sha256":"` + digest + `"`, "must not both"},
+		{"key with empty digest", `,"key":"sk-alice","key_sha256":""`, "must not both"},
+		{"empty key", `,"key":""`, ".key must not be empty"},
+		{"empty digest", `,"key_sha256":""`, ".key_sha256 must not be empty"},
+		{"null key", `,"key":null`, ".key"},
+		{"null digest", `,"key_sha256":null`, ".key_sha256"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			doc := `{"version":1,"count":1,"keys":[{"name":"alice"` + test.fields + `}]}`
+			_, err := decodeJSONContribution([]byte(doc))
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatalf("decodeJSONContribution() = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("decodeJSONContribution() = %v, want error containing %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestDecodeJSONErrorsNeverExposeKeyMaterial(t *testing.T) {
+	secret := "12345678"
+	for _, field := range []string{"key", "key_sha256"} {
+		doc := `{"version":1,"count":1,"keys":[{"name":"alice","` + field + `":` + secret + `}]}`
+		_, err := decodeJSONContribution([]byte(doc))
+		if err == nil {
+			t.Fatalf("decodeJSONContribution(%s) succeeded, want rejection", field)
+		}
+		if strings.Contains(err.Error(), secret) || !strings.Contains(err.Error(), "keys[0]."+field) {
+			t.Fatalf("decodeJSONContribution(%s) exposed key material or lost path: %v", field, err)
+		}
+	}
+}

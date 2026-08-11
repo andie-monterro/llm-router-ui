@@ -4,7 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/michaelquigley/df/dd"
 	"github.com/openziti/llm-gateway/agora"
+	"github.com/openziti/llm-gateway/keys"
 )
 
 func TestValidateAgoraDialRequiresEnabled(t *testing.T) {
@@ -112,5 +114,26 @@ func TestCollectAgoraTunnelsScoping(t *testing.T) {
 	}
 	if got := collectAgoraTunnels(single); len(got) != 1 || got[0] != "local-single" {
 		t.Fatalf("single-local collectAgoraTunnels = %#v, want [local-single]", got)
+	}
+}
+
+func TestCollectAgoraTunnelsIncludesHTTPKeySourcesWithoutProviders(t *testing.T) {
+	cfg := &Config{APIKeys: &keys.Config{
+		Enabled: true,
+		Sources: []dd.Dynamic{
+			&keys.HTTPSourceConfig{Name: "a", AgoraTunnel: " keys-egress "},
+			&keys.HTTPSourceConfig{Name: "b", AgoraTunnel: "keys-egress"},
+		},
+	}}
+	got := collectAgoraTunnels(cfg)
+	if len(got) != 1 || got[0] != "keys-egress" {
+		t.Fatalf("collectAgoraTunnels() = %#v, want [keys-egress]", got)
+	}
+	if err := cfg.validateAgora(); err == nil || !strings.Contains(err.Error(), "key source") {
+		t.Fatalf("validateAgora() = %v, want key-source agora precondition", err)
+	}
+	cfg.Agora = &agora.Config{Enabled: true}
+	if err := cfg.validateAgora(); err != nil {
+		t.Fatalf("validateAgora() with agora enabled = %v", err)
 	}
 }

@@ -99,6 +99,36 @@ func decodeYAMLContribution(data []byte) (*Contribution, error) {
 	return mapWireEnvelope(doc)
 }
 
+func decodeJSONContribution(data []byte) (*Contribution, error) {
+	raw, err := dd.DecodeStrictJSON(data)
+	if err != nil {
+		return nil, sanitizeSourceDecodeError(err)
+	}
+	if records, ok := raw["keys"].([]any); ok {
+		StripNullableRecordFields(records)
+	}
+	countValue, countPresent := raw["count"]
+	if countPresent && countValue == nil {
+		// let the rest of the strict envelope bind first so version errors keep
+		// their documented precedence, then report null like an absent count.
+		delete(raw, "count")
+	}
+	doc := &wireEnvelope{}
+	if err := dd.Bind(doc, raw, dd.Strict()); err != nil {
+		return nil, sanitizeSourceDecodeError(err)
+	}
+	if err := validateWireVersion(doc.Version); err != nil {
+		return nil, err
+	}
+	if !countPresent || countValue == nil || doc.Count == nil {
+		return nil, fmt.Errorf("count is required and must not be null")
+	}
+	if *doc.Count != len(doc.Keys) {
+		return nil, fmt.Errorf("count is %d but keys contains %d records", *doc.Count, len(doc.Keys))
+	}
+	return mapWireEnvelope(doc)
+}
+
 func quotedTimestampError(err error) error {
 	var conversion *dd.ConversionError
 	if !errors.As(err, &conversion) || !strings.HasSuffix(conversion.Path, ".expires_at") ||
@@ -112,11 +142,8 @@ func quotedTimestampError(err error) error {
 }
 
 func mapWireEnvelope(doc *wireEnvelope) (*Contribution, error) {
-	if doc.Version < 0 {
-		return nil, fmt.Errorf("version must not be negative")
-	}
-	if doc.Version != 1 {
-		return nil, fmt.Errorf("unsupported key schema version %d", doc.Version)
+	if err := validateWireVersion(doc.Version); err != nil {
+		return nil, err
 	}
 
 	records := make([]*Record, 0, len(doc.Keys))
@@ -179,6 +206,16 @@ func mapWireEnvelope(doc *wireEnvelope) (*Contribution, error) {
 		records = append(records, record)
 	}
 	return &Contribution{SchemaVersion: doc.Version, Records: records}, nil
+}
+
+func validateWireVersion(version int) error {
+	if version < 0 {
+		return fmt.Errorf("version must not be negative")
+	}
+	if version != 1 {
+		return fmt.Errorf("unsupported key schema version %d", version)
+	}
+	return nil
 }
 
 func decodeErrorPath(err error) string {
