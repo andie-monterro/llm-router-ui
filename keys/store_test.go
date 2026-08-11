@@ -148,3 +148,35 @@ func TestFromContextNil(t *testing.T) {
 		t.Fatalf("FromContext() = %+v, want nil", record)
 	}
 }
+
+func TestMiddlewareBindsAuthenticationSnapshotForRequestLifetime(t *testing.T) {
+	store := mustStore(t, []EntryConfig{{Name: "alice", Key: "sk-alice"}})
+	ready := make(chan struct{})
+	resume := make(chan struct{})
+	result := make(chan *Record, 1)
+	handler := store.Middleware(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		close(ready)
+		<-resume
+		result <- FromContext(request.Context())
+	}))
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	request.Header.Set("Authorization", "Bearer sk-alice")
+	done := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(httptest.NewRecorder(), request)
+		close(done)
+	}()
+	<-ready
+	if err := store.Install(configSourceName, &Contribution{SchemaVersion: 1}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.Lookup("sk-alice"); ok {
+		t.Fatal("revoked key remained in the resident snapshot")
+	}
+	close(resume)
+	record := <-result
+	if record == nil || record.Name != "alice" {
+		t.Fatalf("request-bound record = %+v, want original alice record", record)
+	}
+	<-done
+}

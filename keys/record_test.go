@@ -108,7 +108,7 @@ func TestConfigSourceRejectsInvalidRestrictions(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := newConfigSource([]EntryConfig{tt.entry}).load(t.Context())
+			_, err := newConfigSource([]EntryConfig{tt.entry}).Load(t.Context())
 			if err == nil || !strings.Contains(err.Error(), tt.path) {
 				t.Fatalf("load() = %v, want error containing %q", err, tt.path)
 			}

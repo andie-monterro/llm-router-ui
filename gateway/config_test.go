@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/openziti/llm-gateway/keys"
 )
@@ -117,6 +118,102 @@ func TestNewRejectsConfigKeyOutsideBearerGrammar(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "not valid") {
 		t.Error("New() error exposed key material")
+	}
+}
+
+func TestLoadConfigFileKeySource(t *testing.T) {
+	cfg, err := LoadConfig(writeTestConfig(t, `api_keys:
+  enabled: true
+  sources:
+    - type: file
+      path: /tmp/keys.yaml
+      watch: true
+`))
+	if err != nil {
+		t.Fatalf("LoadConfig() = %v, want nil", err)
+	}
+	if cfg.APIKeys == nil || len(cfg.APIKeys.Sources) != 1 {
+		t.Fatalf("api key config = %#v", cfg.APIKeys)
+	}
+	source, ok := cfg.APIKeys.Sources[0].(*keys.FileSourceConfig)
+	if !ok || source.Name != "file[0]" || source.PollInterval != 30*time.Second || !source.Watch {
+		t.Fatalf("file source = %#v", cfg.APIKeys.Sources[0])
+	}
+}
+
+func TestLoadConfigRejectsInvalidFileKeySource(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		wantErr string
+	}{
+		{
+			"disabled sources",
+			`api_keys:
+  enabled: false
+  sources:
+    - type: file
+      path: /tmp/keys.yaml
+`,
+			"requires api_keys.enabled",
+		},
+		{
+			"zero poll interval",
+			`api_keys:
+  enabled: true
+  sources:
+    - type: file
+      path: /tmp/keys.yaml
+      poll_interval: 0s
+`,
+			"poll_interval must be positive",
+		},
+		{
+			"bare poll interval",
+			`api_keys:
+  enabled: true
+  sources:
+    - type: file
+      path: /tmp/keys.yaml
+      poll_interval: 30
+`,
+			"expected duration string",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := LoadConfig(writeTestConfig(t, tt.body))
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("LoadConfig() = %v, want error containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestNewBootLoadsFileKeySource(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "keys.yaml")
+	if err := os.WriteFile(keyPath, []byte("version: 1\nkeys:\n  - name: alice\n    key: sk-alice\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configPath := writeTestConfig(t, `api_keys:
+  enabled: true
+  sources:
+    - type: file
+      name: managed
+      path: `+keyPath+`
+`)
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() = %v, want nil", err)
+	}
+	t.Cleanup(gateway.cleanup)
+	if record, ok := gateway.keyStore.Lookup("sk-alice"); !ok || record.Name != "alice" || record.Source != "managed" {
+		t.Fatalf("file key lookup = %+v, %v", record, ok)
 	}
 }
 

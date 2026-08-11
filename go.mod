@@ -3,6 +3,7 @@ module github.com/openziti/llm-gateway
 go 1.26.4
 
 require (
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/michaelquigley/df v1.0.2
 	github.com/michaelquigley/pfxlog v0.6.10
 	github.com/openziti/agora v0.1.5
@@ -15,6 +16,7 @@ require (
 	go.opentelemetry.io/otel/exporters/prometheus v0.62.0
 	go.opentelemetry.io/otel/metric v1.43.0
 	go.opentelemetry.io/otel/sdk/metric v1.43.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -24,7 +26,6 @@ require (
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/fatih/color v1.18.0 // indirect
-	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fullsailor/pkcs7 v0.0.0-20190404230743-d7302db945fa // indirect
 	github.com/ghodss/yaml v1.0.0 // indirect
 	github.com/go-faster/errors v0.7.1 // indirect
@@ -122,6 +123,5 @@ require (
 	google.golang.org/grpc v1.79.2 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	nhooyr.io/websocket v1.8.17 // indirect
 )

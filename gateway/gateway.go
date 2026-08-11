@@ -93,16 +93,11 @@ func New(cfg *Config) (_ *Gateway, err error) {
 	}
 
 	if cfg.APIKeys != nil && cfg.APIKeys.Enabled {
-		// enabled with no keys must not silently mean open access.
-		if len(cfg.APIKeys.Keys) == 0 {
-			return nil, fmt.Errorf("api_keys.enabled requires at least one configured key")
-		}
-		ks, err := keys.NewStore(cfg.APIKeys.Keys)
+		ks, err := g.initKeyStore()
 		if err != nil {
 			return nil, err
 		}
 		g.keyStore = ks
-		dl.Infof("loaded %d API key(s)", len(cfg.APIKeys.Keys))
 	}
 
 	if cfg.Routing != nil {
@@ -114,6 +109,14 @@ func New(cfg *Config) (_ *Gateway, err error) {
 	}
 
 	return g, nil
+}
+
+func (g *Gateway) initKeyStore() (*keys.Store, error) {
+	store, err := keys.NewStoreFromConfig(g.cfg.APIKeys)
+	if err != nil {
+		return nil, fmt.Errorf("initialize API key store: %w", err)
+	}
+	return store, nil
 }
 
 func (g *Gateway) initProviders() error {
@@ -307,12 +310,24 @@ func (g *Gateway) Run() error {
 	defer g.cleanup()
 
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signals := append([]os.Signal{syscall.SIGINT, syscall.SIGTERM}, reloadSignals()...)
+	signal.Notify(sigCh, signals...)
+	defer signal.Stop(sigCh)
 
 	go func() {
-		<-sigCh
-		dl.Info("received shutdown signal")
-		cancel()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case sig := <-sigCh:
+				if !g.dispatchSignal(sig) {
+					continue
+				}
+				dl.Info("received shutdown signal")
+				cancel()
+				return
+			}
+		}
 	}()
 
 	zrokEnabled := g.cfg.Zrok != nil && g.cfg.Zrok.Share != nil && g.cfg.Zrok.Share.Enabled
@@ -402,6 +417,16 @@ func (g *Gateway) Run() error {
 	}
 }
 
+func (g *Gateway) dispatchSignal(signal os.Signal) bool {
+	if !isReloadSignal(signal) {
+		return true
+	}
+	if g.keyStore == nil || g.keyStore.TriggerAll() == 0 {
+		dl.Info("received reload signal with no reloadable API key sources")
+	}
+	return false
+}
+
 // serveHTTP serves one listener on its own goroutine, translating the expected
 // graceful-shutdown errors to nil and routing real failures to errCh.
 func serveHTTP(server *http.Server, listener net.Listener, errCh chan<- error, label string) {
@@ -427,6 +452,11 @@ func shutdownHTTPServers(servers []*http.Server) error {
 }
 
 func (g *Gateway) cleanup() {
+	if g.keyStore != nil {
+		if err := g.keyStore.Close(); err != nil {
+			dl.Warnf("error closing API key store: %v", err)
+		}
+	}
 	for _, p := range g.providers {
 		if c, ok := p.(io.Closer); ok {
 			c.Close()

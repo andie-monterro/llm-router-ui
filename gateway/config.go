@@ -119,6 +119,9 @@ func LoadConfig(path string) (*Config, error) {
 	if err := keys.ResolveConfig(cfg.APIKeys); err != nil {
 		return nil, err
 	}
+	if err := keys.Validate(cfg.APIKeys); err != nil {
+		return nil, err
+	}
 	if err := cfg.expandEnv(); err != nil {
 		return nil, err
 	}
