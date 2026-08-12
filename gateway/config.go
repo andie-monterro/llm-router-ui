@@ -2,11 +2,13 @@ package gateway
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 
 	"github.com/michaelquigley/df/dd"
 	"github.com/openziti/llm-gateway/agora"
+	"github.com/openziti/llm-gateway/keys"
 	"github.com/openziti/llm-gateway/routing"
 )
 
@@ -17,7 +19,7 @@ type Config struct {
 	Providers *ProvidersConfig
 	Routing   *routing.RoutingConfig
 	Metrics   *MetricsConfig
-	APIKeys   *APIKeysConfig
+	APIKeys   *keys.Config
 	Tracing   *TracingConfig
 }
 
@@ -81,25 +83,44 @@ type MetricsConfig struct {
 	Enabled bool
 }
 
-type APIKeysConfig struct {
-	Enabled bool
-	Keys    []APIKeyEntry
-}
-
-type APIKeyEntry struct {
-	Name          string
-	Key           string
-	AllowedModels []string
-	AllowedRoutes []string
+type rawConfigDocument struct {
+	Fields map[string]any `dd:",+extra"`
 }
 
 func LoadConfig(path string) (*Config, error) {
-	cfg := &Config{}
-	if err := dd.MergeYAMLFile(cfg, path); err != nil {
+	raw, err := dd.NewYAMLFile[rawConfigDocument](path)
+	if err != nil {
 		return nil, err
 	}
+
+	var keyConfig *keys.Config
+	if value, exists := raw.Fields["api_keys"]; exists && value != nil {
+		block, ok := value.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("api_keys: expected mapping")
+		}
+		keyConfig, err = keys.BindConfig(block)
+		if err != nil {
+			return nil, err
+		}
+	}
+	// api_keys has already passed its strict subsystem bind. keep the main
+	// config's forgiving bind from decoding it a second, weaker way.
+	delete(raw.Fields, "api_keys")
+
+	cfg := &Config{}
+	if err := dd.Merge(cfg, raw.Fields); err != nil {
+		return nil, err
+	}
+	cfg.APIKeys = keyConfig
 	// resolve agora env vars + integration file before any agora field is read.
 	if err := agora.ResolveConfig(cfg.Agora); err != nil {
+		return nil, err
+	}
+	if err := keys.ResolveConfig(cfg.APIKeys); err != nil {
+		return nil, err
+	}
+	if err := keys.Validate(cfg.APIKeys); err != nil {
 		return nil, err
 	}
 	if err := cfg.expandEnv(); err != nil {
@@ -115,10 +136,9 @@ func LoadConfig(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// expandEnv resolves ${VAR} references in the config's secret-bearing string
-// fields once, at load, so every downstream gate reads the same expanded
-// values. a value written non-empty that resolves empty is a directed error
-// (an unset variable); a value left empty stays "not configured".
+// expandEnv resolves ${VAR} references in gateway-owned provider fields once at
+// load. subsystem-owned fields are resolved by their own ResolveConfig function
+// from LoadConfig so downstream gates still see one settled value.
 func (c *Config) expandEnv() error {
 	expand := func(field string, value *string) error {
 		if *value == "" {
@@ -134,10 +154,10 @@ func (c *Config) expandEnv() error {
 
 	if c.Providers != nil {
 		if p := c.Providers.OpenAI; p != nil {
-			if err := expand("providers.openai.api_key", &p.APIKey); err != nil {
+			if err := expand("providers.open_ai.api_key", &p.APIKey); err != nil {
 				return err
 			}
-			if err := expand("providers.openai.base_url", &p.BaseURL); err != nil {
+			if err := expand("providers.open_ai.base_url", &p.BaseURL); err != nil {
 				return err
 			}
 		}
@@ -158,19 +178,6 @@ func (c *Config) expandEnv() error {
 				if err := expand(field, &l.Endpoints[i].BaseURL); err != nil {
 					return err
 				}
-			}
-		}
-	}
-
-	if c.APIKeys != nil && c.APIKeys.Enabled {
-		for i := range c.APIKeys.Keys {
-			entry := &c.APIKeys.Keys[i]
-			field := fmt.Sprintf("api_keys.keys[%d] ('%s')", i, entry.Name)
-			if entry.Key == "" {
-				return fmt.Errorf("%s has an empty key", field)
-			}
-			if err := expand(field+" key", &entry.Key); err != nil {
-				return err
 			}
 		}
 	}
@@ -219,7 +226,7 @@ func (c *Config) validateProviders() error {
 		return nil
 	}
 	if p := c.Providers.OpenAI; p != nil {
-		if err := check("openai", p.APIKey, p.ZrokShareToken, p.AgoraTunnel); err != nil {
+		if err := check("open_ai", p.APIKey, p.ZrokShareToken, p.AgoraTunnel); err != nil {
 			return err
 		}
 	}
@@ -238,6 +245,46 @@ func (c *Config) validateProviders() error {
 			return fmt.Errorf("providers.local.zrok_share_token is ignored in multi-endpoint mode; move it onto an endpoint")
 		}
 	}
+
+	// a written base_url the gateway cannot dial is configuration it cannot
+	// honor. deferring it to the request path starts the gateway reporting
+	// healthy while every affected call fails.
+	if p := c.Providers.OpenAI; p != nil {
+		if err := validateBaseURL("providers.open_ai.base_url", p.BaseURL); err != nil {
+			return err
+		}
+	}
+	if p := c.Providers.Anthropic; p != nil {
+		if err := validateBaseURL("providers.anthropic.base_url", p.BaseURL); err != nil {
+			return err
+		}
+	}
+	if l := c.Providers.Local; l != nil {
+		if err := validateBaseURL("providers.local.base_url", l.BaseURL); err != nil {
+			return err
+		}
+		for i := range l.Endpoints {
+			field := fmt.Sprintf("providers.local.endpoints[%d].base_url", i)
+			if err := validateBaseURL(field, l.Endpoints[i].BaseURL); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// validateBaseURL accepts an empty value as "not configured" and otherwise
+// requires an absolute HTTP(S) URL with a host, matching what the key
+// subsystem requires of a source base_url.
+func validateBaseURL(field, value string) error {
+	if value == "" {
+		return nil
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" ||
+		(!strings.EqualFold(parsed.Scheme, "http") && !strings.EqualFold(parsed.Scheme, "https")) {
+		return fmt.Errorf("%s must be an absolute HTTP(S) URL", field)
+	}
 	return nil
 }
 
@@ -248,7 +295,7 @@ func (c *Config) AgoraServeEnabled() bool {
 }
 
 // AgoraPublishEnabled reports whether the gateway should publish a catalog
-// advertisement. Publishing requires serving in this iteration: a dial-only
+// advertisement. publishing requires serving in this iteration: a dial-only
 // gateway never publishes an advertisement whose name points at a front-door
 // tunnel it does not bind.
 func (c *Config) AgoraPublishEnabled() bool {
@@ -256,12 +303,10 @@ func (c *Config) AgoraPublishEnabled() bool {
 }
 
 // collectAgoraTunnels returns the unique, trimmed agora_tunnel names for only
-// the providers and endpoints initProviders will actually initialize — no
-// phantom attachments. OpenAI/Anthropic count only when configured (the same
-// APIKey gate initProviders uses); Local contributes its endpoint tunnels in
-// multi mode and its single tunnel only in single mode.
+// the providers, endpoints, and key sources their init paths will construct —
+// no phantom attachments.
 func collectAgoraTunnels(cfg *Config) []string {
-	if cfg == nil || cfg.Providers == nil {
+	if cfg == nil {
 		return nil
 	}
 	seen := map[string]struct{}{}
@@ -278,19 +323,28 @@ func collectAgoraTunnels(cfg *Config) []string {
 		tunnels = append(tunnels, name)
 	}
 
-	if p := cfg.Providers.OpenAI; p != nil && p.APIKey != "" {
-		add(p.AgoraTunnel)
-	}
-	if p := cfg.Providers.Anthropic; p != nil && p.APIKey != "" {
-		add(p.AgoraTunnel)
-	}
-	if l := cfg.Providers.Local; l != nil {
-		if len(l.Endpoints) > 0 {
-			for _, ep := range l.Endpoints {
-				add(ep.AgoraTunnel)
+	if cfg.Providers != nil {
+		if p := cfg.Providers.OpenAI; p != nil && p.APIKey != "" {
+			add(p.AgoraTunnel)
+		}
+		if p := cfg.Providers.Anthropic; p != nil && p.APIKey != "" {
+			add(p.AgoraTunnel)
+		}
+		if l := cfg.Providers.Local; l != nil {
+			if len(l.Endpoints) > 0 {
+				for _, ep := range l.Endpoints {
+					add(ep.AgoraTunnel)
+				}
+			} else {
+				add(l.AgoraTunnel)
 			}
-		} else {
-			add(l.AgoraTunnel)
+		}
+	}
+	if cfg.APIKeys != nil && cfg.APIKeys.Enabled {
+		for _, dynamic := range cfg.APIKeys.Sources {
+			if source, ok := dynamic.(*keys.HTTPSourceConfig); ok {
+				add(source.AgoraTunnel)
+			}
 		}
 	}
 	return tunnels
@@ -302,7 +356,7 @@ func collectAgoraTunnels(cfg *Config) []string {
 func (c *Config) validateAgora() error {
 	// (a) dial side — a per-site agora_tunnel is meaningless without the subsystem.
 	if len(collectAgoraTunnels(c)) > 0 && (c.Agora == nil || !c.Agora.Enabled) {
-		return fmt.Errorf("agora_tunnel set on a provider/endpoint requires agora.enabled: true")
+		return fmt.Errorf("agora_tunnel set on a provider, endpoint, or key source requires agora.enabled: true")
 	}
 	// (b) serve side (symmetric) — serve.enabled without enabled would silently
 	// fall back to the plaintext local listener.

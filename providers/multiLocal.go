@@ -317,7 +317,7 @@ func (m *MultiLocal) PrimaryBaseURL() string {
 }
 
 // RoundRobinClient returns an HTTP client that distributes requests across
-// healthy endpoints with failover. It rewrites request URLs to target the
+// healthy endpoints with failover. it rewrites request URLs to target the
 // selected endpoint and uses that endpoint's transport (supporting zrok).
 func (m *MultiLocal) RoundRobinClient() *http.Client {
 	return &http.Client{

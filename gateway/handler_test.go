@@ -8,9 +8,19 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/openziti/llm-gateway/keys"
 	"github.com/openziti/llm-gateway/providers"
 	"github.com/openziti/llm-gateway/routing"
 )
+
+func mustKeyStore(t *testing.T, entries []keys.EntryConfig) *keys.Store {
+	t.Helper()
+	store, err := keys.NewStore(entries)
+	if err != nil {
+		t.Fatalf("keys.NewStore() = %v, want nil", err)
+	}
+	return store
+}
 
 // stubStreamProvider replays a fixed sequence of stream events and then closes
 // the channel, letting tests exercise terminal and non-terminal stream shapes.
@@ -114,7 +124,7 @@ func TestExplicitModelPassthroughNotRouteRestricted(t *testing.T) {
 		providers:      pmap,
 		router:         providers.NewRouter(pmap),
 		semanticRouter: sr,
-		keyStore:       mustKeyStore(t, []APIKeyEntry{{Name: "restricted", Key: "sk-gw-test", AllowedRoutes: []string{"coding"}}}),
+		keyStore:       mustKeyStore(t, []keys.EntryConfig{{Name: "restricted", Key: "sk-gw-test", AllowedRoutes: []string{"coding"}}}),
 	}
 	handler := g.newHandler()
 
@@ -208,7 +218,7 @@ func TestCapabilityModelAliasResolvesBeforeDispatch(t *testing.T) {
 		t.Fatalf("unknown vocabulary returned %d, want 400", rr.Code)
 	}
 
-	g.keyStore = mustKeyStore(t, []APIKeyEntry{{
+	g.keyStore = mustKeyStore(t, []keys.EntryConfig{{
 		Name: "route-denied", Key: "sk-route-denied", AllowedRoutes: []string{"general"},
 	}})
 	handler = g.newHandler()
@@ -222,7 +232,7 @@ func TestCapabilityModelAliasResolvesBeforeDispatch(t *testing.T) {
 		t.Fatalf("disallowed capability route returned %d, want 403", rr.Code)
 	}
 
-	g.keyStore = mustKeyStore(t, []APIKeyEntry{{
+	g.keyStore = mustKeyStore(t, []keys.EntryConfig{{
 		Name: "model-denied", Key: "sk-model-denied",
 		AllowedRoutes: []string{"frontier-coding"}, AllowedModels: []string{"other-model"},
 	}})

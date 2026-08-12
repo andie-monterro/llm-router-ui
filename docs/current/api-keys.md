@@ -1,98 +1,111 @@
 # Virtual API Keys
 
-The gateway supports virtual API keys -- gateway-issued bearer tokens that identify clients and optionally restrict what they can access. These are "virtual" because they are not upstream provider keys; they are managed entirely by the gateway.
+Virtual API keys are gateway-issued bearer tokens that identify clients and optionally restrict which models and semantic routes they may use. They are independent of upstream provider credentials: clients send a virtual key to llm-gateway, and the gateway uses its own provider credentials after the request is authorized.
 
-Clients send the key in the standard `Authorization: Bearer <key>` header, matching the convention used with OpenAI and other providers. Existing tools (Open WebUI, LiteLLM clients, curl scripts) work without changes beyond configuring a key.
+Clients send the key in the standard header:
 
-## Configuration
+```http
+Authorization: Bearer sk-gw-example
+```
 
-Keys are defined in the gateway config file. Each key has a name (for logging and attribution), a secret value, and optional constraints.
+Existing OpenAI-compatible clients work without protocol changes. When `api_keys` is omitted or `enabled: false`, authentication is disabled and the gateway remains open.
+
+## Inline Configuration
+
+The smallest configuration keeps keys in the main gateway file:
 
 ```yaml
 api_keys:
   enabled: true
   keys:
     - name: alice
-      key: "sk-gw-abc123..."
+      key: "${ALICE_GATEWAY_KEY}"
       allowed_models: ["claude-*", "gpt-*"]
       allowed_routes: ["coding", "general"]
 
-    - name: bob
-      key: "sk-gw-def456..."
-      allowed_models: ["llama3", "qwen3-vl:*"]
-
-    - name: ci-pipeline
-      key: "sk-gw-xyz789..."
-      allowed_models: ["*"]
+    - name: breakglass
+      key: "sk-gw-breakglass-example"
 ```
 
-When `api_keys` is omitted or `enabled: false`, the gateway behaves as before -- no authentication required, open access.
+Inline keys are loaded once at startup and are not re-read. They are useful for a break-glass credential; use a [file or HTTP key source](key-sources.md) for keys that must be added, changed, or revoked without restarting the gateway.
 
-Keys support environment variable substitution, matching the pattern used for upstream provider keys:
+The complete `api_keys` subtree is decoded strictly. Unknown fields, duplicate fields, missing required values, and values that require type coercion fail startup rather than being ignored. `${VAR}` references in inline `key` values are expanded once while the configuration loads; a non-empty reference that resolves empty is an error.
 
-```yaml
-keys:
-  - name: alice
-    key: "${ALICE_API_KEY}"
-```
+## Key Format and Storage
 
-## Key Format
-
-Keys use the prefix `sk-gw-` to distinguish them from upstream provider keys (OpenAI `sk-`, Anthropic `sk-ant-`). The prefix is a convention, not enforced by the gateway. Generate keys with the CLI:
+`llm-gateway genkey` generates a high-entropy key with the conventional `sk-gw-` prefix:
 
 ```bash
 llm-gateway genkey
 # sk-gw-a1b2c3d4e5f6...
 ```
 
-Keys are stored as plaintext in the config file, consistent with how upstream API keys are stored.
+The prefix identifies the credential to humans but is not required. A plaintext key must match the HTTP bearer-token `b64token` grammar: letters, digits, `-`, `.`, `_`, `~`, `+`, and `/`, followed by any trailing `=` padding. Whitespace, control characters, and non-ASCII values are rejected because an HTTP `Authorization` header cannot carry them reliably.
+
+Inline configuration necessarily contains plaintext, but the resident store does not. The gateway validates and SHA-256 hashes each key while loading it, hashes each presented bearer token once, and compares digests. External sources may publish the digest directly with `key_sha256`; see [Key Sources](key-sources.md).
+
+## Identity and Restrictions
+
+`name` is the stable attribution identity used in request metrics and routing logs. It must be non-empty and is compared exactly: case, whitespace, and Unicode form are not normalized. Renaming a record moves future observations to a new identity. Publishing two records with one name is appropriate during a key-rotation window, but otherwise merges their attribution.
+
+### Model Restrictions
+
+`allowed_models` contains glob patterns in Go's `path.Match` dialect. An absent or empty list permits every model. A non-empty list permits a resolved model when any pattern matches; malformed patterns reject the key document.
+
+The dialect treats `/` as a separator, so neither `*` nor `?` crosses it. In particular, `allowed_models: ["*"]` does **not** match a provider-namespaced model such as `meta-llama/Llama-3-70B`. Use a pattern such as `meta-llama/*`, `*/*`, or an explicit model name when slash-containing IDs should be allowed. Omitting `allowed_models` is the only spelling that is unconditionally unrestricted.
+
+Permission is checked after semantic routing and aliases resolve to a concrete model, but before provider dispatch. A rejected model returns 403.
+
+### Route Restrictions
+
+`allowed_routes` contains exact semantic-route names, not patterns. An absent or empty list permits every route. When semantic routing selects a route outside the list, the gateway returns 403 rather than silently choosing a fallback. Explicit-model requests have no semantic route, so route restrictions do not reject them; the concrete-model check still applies.
+
+## Expiry and Revocation
+
+File and HTTP source records may carry `expires_at`. A key is expired at the timestamp's exact boundary and returns the same 401 response as an unknown key. Expiry is checked during lookup, so it does not wait for the next source refresh. Inline keys do not yet expose `expires_at`.
+
+Revocation is deletion from a source. A source refresh installs its complete current set atomically; removing a record removes that source's claim on the next successful refresh. A request that already authenticated completes against the record it received even if a later snapshot revokes the key mid-flight.
 
 ## Authentication Flow
 
 ```mermaid
 flowchart TD
     req[client request] --> mw{auth middleware}
-    mw -- "/health, /metrics" --> pass[pass through — no auth required]
+    mw -- "/health or /metrics" --> pass[pass through]
     mw -- "api_keys disabled" --> pass
-    mw -- "Authorization header missing" --> e401[401]
-    mw -- "key not recognized" --> e401
-    mw -- "key valid" --> ok[attach identity to context]
-    pass --> handlers[existing handler pipeline — unchanged]
-    ok --> handlers
+    mw -- "header missing or malformed" --> e401[401 authentication_error]
+    mw -- "unknown or expired key" --> e401
+    mw -- "key valid" --> identity[attach key record to request]
+    pass --> handlers[handler pipeline]
+    identity --> restrictions{resolved model and route allowed?}
+    restrictions -- no --> e403[403 permission_error]
+    restrictions -- yes --> handlers
 ```
 
-## Model Restrictions
-
-Each key can specify `allowed_models` as a list of glob patterns (e.g. `claude-*` matches any Claude model). A key with `allowed_models: ["*"]` or no `allowed_models` field has unrestricted access.
-
-Model permission is checked after the model is fully resolved (including semantic routing) but before the request is dispatched to a provider. If the resolved model doesn't match any allowed pattern, the gateway returns 403.
-
-## Route Restrictions
-
-When semantic routing is enabled, a key can specify `allowed_routes` to limit which semantic routes it can use. If semantic routing selects a route the key cannot access, the gateway returns 403. It does not silently reroute to a fallback.
+`/health` and `/metrics` remain unauthenticated.
 
 ## Error Responses
 
-Errors follow the OpenAI-compatible format:
+Errors use the OpenAI-compatible envelope:
 
-| Scenario | Status | Error Type |
-|---|---|---|
-| Missing `Authorization` header | 401 | `authentication_error` |
-| Invalid key | 401 | `authentication_error` |
+| Scenario | Status | Error type |
+|---|---:|---|
+| Missing or malformed `Authorization` header | 401 | `authentication_error` |
+| Unknown or expired key | 401 | `authentication_error` |
 | Model not allowed | 403 | `permission_error` |
 | Route not allowed | 403 | `permission_error` |
 
+The unknown and expired cases are intentionally indistinguishable to clients.
+
 ## Logging and Metrics
 
-The validated key name is included in:
-
-- **Semantic routing log lines**: `semantic routing: key='alice' method=semantic route='coding' ...`
-- **Request metrics**: `key` label on `llm_gateway.requests` and `llm_gateway.request.duration`
+The validated key name appears in semantic-routing log lines and as the `key` attribute on `llm_gateway.requests` and `llm_gateway.request.duration`. Secret values and digests are never logged. Source freshness, reload results, exclusion, and resident-record metrics are documented in [Key Sources](key-sources.md) and [Metrics](metrics.md).
 
 ## Not Yet Implemented
 
 - Per-key filtering of `/v1/models` responses
-- Key expiry (`expires_at`)
-- Hashed key storage
-- Rate limiting per key
-- Dynamic key management API
+- Expiry on inline configuration keys and advance-expiry warnings
+- Plaintext-free inline configuration
+- Per-key rate limiting
+- Per-key token accounting and spend limits
+- Cancelling in-flight work when a key is revoked

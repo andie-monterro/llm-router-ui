@@ -6,4 +6,10 @@ tags: [feature]
 milestone: v0.1.x
 ---
 
-Add an optional `expires_at` to a virtual API key so it stops authenticating past a set time. Expired keys are rejected at the auth middleware like an unknown key.
+Complete the operator ergonomics around API-key expiry.
+
+File and HTTP key records already accept `expires_at`, enforce it at the exact boundary during lookup, and reject an expired key like an unknown one. What remains is:
+
+- expose `expires_at` on boot-resident inline config keys;
+- warn operators before a key lapses;
+- decide how a record already expired when it loads should be surfaced beyond normal authentication rejection.

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## v0.1.7
+
+FEATURE: Virtual API keys can now be composed from boot-resident config keys, reloadable strict-YAML files, and a versioned HTTP key API. Sources refresh without restarting, converge through polling plus optional file watches and Unix `SIGHUP`, hold last-known-good on reload failure, and support optional fail-closed exclusion through `max_staleness`. The resident store keeps only SHA-256 digests, source records may publish `key_sha256` and exact-boundary `expires_at`, HTTP refreshes support ETag/conditional `304`, and four OpenTelemetry instruments expose refresh results, freshness, exclusion, and resident cardinality. See [docs/current/key-sources.md](docs/current/key-sources.md).
+
+CHANGE: Virtual API-key configuration and source documents now decode strictly. Unknown or duplicate fields, type coercions, invalid model globs, malformed key material, and unsupported schema versions fail loudly rather than silently widening access; plaintext keys must fit the HTTP bearer-token grammar. `api_keys.enabled: true` may contain only external sources, while a declared source requires authentication to be enabled. Config keys remain first in precedence so they can serve as break-glass credentials. See [docs/current/api-keys.md](docs/current/api-keys.md).
+
+FIX: Operator-supplied zrok share tokens no longer appear in access, provider, endpoint, key-source, persistent-share, or cleanup logs. Lifecycle messages use non-secret owner labels instead. Tokens generated for ephemeral gateway shares remain startup output because that is how the operator learns the new address.
+
+FIX: Errors from an OpenAI-compatible local backend keep their own type and status instead of becoming a gateway `server_error` with HTTP 500. The local provider read only Ollama's native `{"error": "message"}` form, so a standard `{"error": {"message": ..., "type": ...}}` envelope from vLLM, SGLang, or llama-server fell through to a generic server error -- reporting a client's bad request as a gateway failure. The OpenAI envelope is now read first and the Ollama form remains a fallback. A response body matching neither envelope no longer appears in the client-visible message, since the local provider fronts arbitrary operator-configured backends whose bodies are not the gateway's to forward.
+
+FIX: A provider `base_url` that is not an absolute HTTP(S) URL is now a directed startup error naming the field, rather than a gateway that starts healthy and fails every affected request. This covers the OpenAI, Anthropic, and local blocks and each multi-endpoint entry; an omitted `base_url` still means "use the default" and is unaffected.
+
+FEATURE: New `dummy-keys` binary serves the published `GET /v1/keys` contract from a local file, so an HTTP key source can be exercised without standing up a management plane. The file is re-read per request and carries an `ETag`, so editing it and watching the gateway converge is the demo, and `--fault` injects the failure modes the design is built around -- an error status, a `count` that disagrees with `keys`, pagination headers, an unsolicited `304`, a stalled response, a malformed envelope, an unknown record field -- none of which are observable against a server that always behaves. See [docs/current/dummy-keys.md](docs/current/dummy-keys.md).
+
+FIX: Startup errors about the OpenAI provider now name `providers.open_ai.*`, the configuration key the gateway actually reads. They previously named `providers.openai.*`, which does not exist -- an operator following the message would search their config for a key that is not there and change nothing.
+
 ## v0.1.6
 
 FEATURE: Sterling capability coordinates can be carried as strict virtual model aliases on the existing OpenAI chat surface. The gateway resolves `sterling-capability:sterling-classes/v1/<class>` to the configured route model before provider dispatch while applying explicit-model policy plus route and concrete-model API-key restrictions. The v1 vocabulary currently contains only `frontier-coding`.

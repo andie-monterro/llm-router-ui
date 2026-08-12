@@ -21,7 +21,7 @@ type Serve struct {
 	closed   bool
 }
 
-// Serve resolves the operator-provisioned serve tunnel and binds to it. The
+// Serve resolves the operator-provisioned serve tunnel and binds to it. the
 // tunnel must already exist as a direct, tcp-mode tunnel; the gateway never
 // creates it. any resolution/listen failure is fatal (iteration 1).
 func (s *Subsystem) Serve(ctx context.Context) (*Serve, error) {

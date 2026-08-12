@@ -23,15 +23,15 @@ type AdvertisementConfig struct {
 	Capabilities []string
 }
 
-// ServeConfig controls Agora Layer 1 serve behavior. The gateway is bind-only:
+// ServeConfig controls Agora Layer 1 serve behavior. the gateway is bind-only:
 // it binds to an operator-provisioned tunnel and never creates or deletes one,
 // so there are no serve-side grants here (grants are a provisioning concern and
 // confer client/dialer access, not bind permission).
 type ServeConfig struct {
 	Enabled bool
-	// Tunnel is the bind-target tunnel name. The tunnel must already exist as a
+	// Tunnel is the bind-target tunnel name. the tunnel must already exist as a
 	// direct, tcp-mode tunnel that the gateway's account owns; the gateway binds
-	// to it and never creates or deletes it. Defaults to InstanceName.
+	// to it and never creates or deletes it. defaults to InstanceName.
 	Tunnel string
 }
 
@@ -65,7 +65,7 @@ func AdvertisementPublish(cfg *Config) bool {
 }
 
 // PublishExplicit reports whether advertisement.publish was set explicitly,
-// as opposed to publishing being on by default. The gateway uses this to
+// as opposed to publishing being on by default. the gateway uses this to
 // distinguish a defaulted publish (silently suppressed for dial-only) from an
 // explicit operator request (a directed boot error when serve is off).
 func PublishExplicit(cfg *Config) bool {

@@ -19,11 +19,11 @@ CLI flags override config file values. For example, `--address :9090` will overr
 
 ## Config File Format
 
-The config is loaded with `dd.MergeYAMLFile()`, which maps Go struct fields to `snake_case` YAML keys automatically. For example, the struct field `AllowExplicitModel` becomes the YAML key `allow_explicit_model`.
+The config loader maps Go struct fields to `snake_case` YAML keys automatically. For example, the struct field `AllowExplicitModel` becomes the YAML key `allow_explicit_model`. The `api_keys` subtree has a stricter contract than the rest of the file: unknown fields and type coercions there are startup errors.
 
 ### Environment Variable Substitution
 
-String values in the config support environment variable expansion using `${VAR}` syntax:
+Credential and base-URL fields support environment variable expansion using `${VAR}` syntax:
 
 ```yaml
 providers:
@@ -31,9 +31,16 @@ providers:
     api_key: "${OPENAI_API_KEY}"
   anthropic:
     api_key: "${ANTHROPIC_API_KEY}"
+
+api_keys:
+  enabled: true
+  sources:
+    - type: http
+      base_url: "${KEY_API_BASE_URL}"
+      token: "${KEY_API_TOKEN}"
 ```
 
-Variables are expanded at config load time using `os.ExpandEnv`.
+Variables are expanded once during config loading. This covers provider credentials and URLs, Agora's subsystem fields, inline virtual keys, and an HTTP key source's `base_url` and `token`. Key documents read from a file or HTTP response are data and are never expanded.
 
 ## Top-Level Keys
 
@@ -70,13 +77,18 @@ tracing:                  # optional: request body logging
 
 routing:                  # optional: semantic routing
   ...                     # see docs/semantic-routing.md
+
+api_keys:                 # optional: virtual-key authentication and reloadable sources
+  enabled: false
+  keys: []                # boot-resident inline keys
+  sources: []             # file and HTTP key sources
+  reload:
+    max_staleness: 0      # unbounded by default
 ```
 
-The gateway serves over every enabled transport at once. The local TCP `listen`
-is **opt-in or fallback**: it starts when `listen` is explicitly set, or as the
-fallback when no overlay serves (neither `zrok.share.enabled` nor
-`agora.serve.enabled`). Omit `listen` with an overlay serve enabled to stay
-private-only -- no plaintext local port is opened.
+The gateway serves over every enabled transport at once. The local TCP `listen` is **opt-in or fallback**: it starts when `listen` is explicitly set, or as the fallback when no overlay serves (neither `zrok.share.enabled` nor `agora.serve.enabled`). Omit `listen` with an overlay serve enabled to stay private-only -- no plaintext local port is opened.
+
+See [Virtual API Keys](api-keys.md) for authentication and restrictions, and [Key Sources](key-sources.md) for the complete source, record, refresh, and staleness contract.
 
 ## Provider Configuration
 
@@ -171,16 +183,17 @@ This is useful for debugging semantic routing decisions -- it shows exactly what
 
 ## Startup Sequence
 
-1. Load and parse the YAML config file
-2. Apply CLI flag overrides
-3. Initialize providers (OpenAI, Anthropic, local/self-hosted) in order
-4. Create the model-to-provider router
-5. Initialize OpenTelemetry metrics (if enabled)
-6. Initialize the semantic router (if configured)
-7. Start the HTTP server over every enabled transport (local, zrok share, and/or Agora tunnel)
-8. Wait for SIGINT or SIGTERM, then shut down gracefully
+1. Load the YAML file; strictly bind and validate `api_keys`; resolve environment references and normalize defaults.
+2. Apply CLI flag overrides.
+3. Initialize Agora, attach every provider and key-source dial tunnel, and prepare serving when enabled.
+4. Initialize providers and the model-to-provider router.
+5. Initialize OpenTelemetry metrics when enabled.
+6. Boot-load inline, file, and HTTP key contributions; publish one composed snapshot; start source refresh loops.
+7. Initialize the semantic router when configured.
+8. Start the HTTP server over every enabled transport (local, zrok share, and/or Agora tunnel).
+9. Dispatch `SIGHUP` to reloadable key sources on Unix; wait for SIGINT or SIGTERM to shut down.
 
-On shutdown, the gateway closes all providers, deletes ephemeral zrok shares, releases zrok access objects, and closes the Agora subsystem (retract advertisement, close serve listener, detach dial tunnels, close agent).
+On shutdown, HTTP servers drain first. The key store then cancels and joins every refresh before the gateway closes providers, its zrok share, zrok access objects, and the Agora subsystem. That ordering ensures a key-source request finishes using its borrowed overlay transport before the transport owner is closed. Ephemeral zrok shares are deleted; supplied persistent shares are only disconnected.
 
 ## Full Example
 
@@ -203,6 +216,20 @@ providers:
 
 metrics:
   enabled: true
+
+api_keys:
+  enabled: true
+  keys:
+    - name: breakglass
+      key: "${BREAKGLASS_KEY}"
+  sources:
+    - type: file
+      name: managed
+      path: "/etc/llm-gateway/keys.yaml"
+      watch: true
+      poll_interval: "30s"
+  reload:
+    max_staleness: "10m"
 
 tracing:
   enabled: true

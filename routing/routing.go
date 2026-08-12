@@ -77,7 +77,7 @@ type SemanticRouter struct {
 }
 
 // validateRoutes checks the route set and its references at construction time
-// and returns the name→route lookup. Each failure here is a misconfiguration
+// and returns the name→route lookup. each failure here is a misconfiguration
 // that would otherwise surface later as a silently dead rule, a phantom
 // fallback, or a matching layer that can never produce a decision.
 func validateRoutes(cfg *RoutingConfig) (map[string]RouteConfig, error) {

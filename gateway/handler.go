@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/michaelquigley/df/dl"
+	"github.com/openziti/llm-gateway/keys"
 	"github.com/openziti/llm-gateway/providers"
 	"github.com/openziti/llm-gateway/routing"
 	"go.opentelemetry.io/otel/attribute"
@@ -103,7 +104,7 @@ func (g *Gateway) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		req.Model = ""
 	}
 
-	keyEntry := KeyFromContext(ctx)
+	keyEntry := keys.FromContext(ctx)
 
 	capabilityResolved := false
 	if routing.IsCapabilityModel(req.Model) {
@@ -145,7 +146,7 @@ func (g *Gateway) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if keyEntry != nil && !CheckModel(keyEntry, req.Model) {
+	if keyEntry != nil && !keyEntry.AllowsModel(req.Model) {
 		dl.Infof("key '%s' denied access to model '%s'", keyEntry.Name, req.Model)
 		providers.WriteError(w,
 			providers.NewAPIError(fmt.Sprintf("model '%s' is not allowed for this API key", req.Model), providers.ErrorTypePermission),
@@ -195,12 +196,12 @@ func (g *Gateway) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 }
 
 // logAndAuthorizeDecision is the single owner of key->route authorization for
-// both the capability and semantic-routing paths. It logs the decision line and
+// both the capability and semantic-routing paths. it logs the decision line and
 // the routing meter, then — for a decision that actually selected a route
 // (Route != "", which excludes explicit-model passthrough) — denies with a 403
-// when the key may not use that route, returning true. On success it binds the
+// when the key may not use that route, returning true. on success it binds the
 // resolved model onto req and returns false.
-func (g *Gateway) logAndAuthorizeDecision(ctx context.Context, w http.ResponseWriter, keyEntry *APIKeyEntry, decision *routing.Decision, req *providers.ChatCompletionRequest) (denied bool) {
+func (g *Gateway) logAndAuthorizeDecision(ctx context.Context, w http.ResponseWriter, keyEntry *keys.Record, decision *routing.Decision, req *providers.ChatCompletionRequest) (denied bool) {
 	keyName := ""
 	if keyEntry != nil {
 		keyName = keyEntry.Name
@@ -215,7 +216,7 @@ func (g *Gateway) logAndAuthorizeDecision(ctx context.Context, w http.ResponseWr
 	// route restrictions apply only to a decision that selected a route; an
 	// explicit-model passthrough has no route (Route == "") and is governed by
 	// the resolved-model check downstream.
-	if keyEntry != nil && decision.Route != "" && !CheckRoute(keyEntry, decision.Route) {
+	if keyEntry != nil && decision.Route != "" && !keyEntry.AllowsRoute(decision.Route) {
 		dl.Infof("key '%s' denied access to route '%s'", keyEntry.Name, decision.Route)
 		providers.WriteError(w,
 			providers.NewAPIError(fmt.Sprintf("route '%s' is not allowed for this API key", decision.Route), providers.ErrorTypePermission),

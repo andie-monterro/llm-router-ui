@@ -5,19 +5,41 @@ import (
 	"net"
 
 	"github.com/michaelquigley/df/dl"
-	"github.com/openziti/sdk-golang/ziti/edge"
 	"github.com/openziti/zrok/v2/environment"
 	"github.com/openziti/zrok/v2/environment/env_core"
 	"github.com/openziti/zrok/v2/sdk/golang/sdk"
 )
 
+type zrokShareOps interface {
+	CreateShare(env_core.Root, *sdk.ShareRequest) (*sdk.Share, error)
+	NewListener(string, env_core.Root) (net.Listener, error)
+	DeleteShare(env_core.Root, *sdk.Share) error
+}
+
+type sdkZrokShareOps struct{}
+
+func (sdkZrokShareOps) CreateShare(root env_core.Root, request *sdk.ShareRequest) (*sdk.Share, error) {
+	return sdk.CreateShare(root, request)
+}
+
+func (sdkZrokShareOps) NewListener(token string, root env_core.Root) (net.Listener, error) {
+	return sdk.NewListener(token, root)
+}
+
+func (sdkZrokShareOps) DeleteShare(root env_core.Root, share *sdk.Share) error {
+	return sdk.DeleteShare(root, share)
+}
+
+var defaultZrokShareOps zrokShareOps = sdkZrokShareOps{}
+
 // Share wraps a zrok share lifecycle.
 type Share struct {
-	root       env_core.Root
-	share      *sdk.Share
-	listener   edge.Listener
-	token      string
-	persistent bool // if true, share is persistent (don't delete on close)
+	root      env_core.Root
+	share     *sdk.Share
+	listener  net.Listener
+	token     string
+	generated bool
+	shareOps  zrokShareOps
 }
 
 // NewShare creates a zrok share with the specified mode.
@@ -32,6 +54,10 @@ func NewShare(mode string) (*Share, error) {
 		return nil, fmt.Errorf("zrok environment is not enabled; run 'zrok enable' first")
 	}
 
+	return newShare(root, mode, defaultZrokShareOps)
+}
+
+func newShare(root env_core.Root, mode string, shareOps zrokShareOps) (*Share, error) {
 	var shareMode sdk.ShareMode
 	switch mode {
 	case "", "private":
@@ -50,16 +76,16 @@ func NewShare(mode string) (*Share, error) {
 		PermissionMode: sdk.OpenPermissionMode,
 	}
 
-	shr, err := sdk.CreateShare(root, shareReq)
+	shr, err := shareOps.CreateShare(root, shareReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create share: %w", err)
 	}
 
 	dl.Infof("created zrok share '%s'", shr.Token)
 
-	listener, err := sdk.NewListener(shr.Token, root)
+	listener, err := shareOps.NewListener(shr.Token, root)
 	if err != nil {
-		if deleteErr := sdk.DeleteShare(root, shr); deleteErr != nil {
+		if deleteErr := shareOps.DeleteShare(root, shr); deleteErr != nil {
 			dl.Errorf("failed to delete share after listener failure: %v", deleteErr)
 		}
 		return nil, fmt.Errorf("failed to create listener: %w", err)
@@ -68,11 +94,12 @@ func NewShare(mode string) (*Share, error) {
 	dl.Infof("listener ready for share '%s'", shr.Token)
 
 	return &Share{
-		root:       root,
-		share:      shr,
-		listener:   listener,
-		token:      shr.Token,
-		persistent: false,
+		root:      root,
+		share:     shr,
+		listener:  listener,
+		token:     shr.Token,
+		generated: true,
+		shareOps:  shareOps,
 	}, nil
 }
 
@@ -89,27 +116,34 @@ func NewShareFromToken(token string) (*Share, error) {
 		return nil, fmt.Errorf("zrok environment is not enabled; run 'zrok enable' first")
 	}
 
-	dl.Infof("connecting to existing zrok share '%s'", token)
+	return newShareFromToken(root, token, defaultZrokShareOps)
+}
 
-	listener, err := sdk.NewListener(token, root)
+func newShareFromToken(root env_core.Root, token string, shareOps zrokShareOps) (*Share, error) {
+	dl.Info("connecting to existing persistent zrok share")
+
+	listener, err := shareOps.NewListener(token, root)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create listener for share '%s': %w", token, err)
+		return nil, fmt.Errorf("failed to create listener for persistent zrok share: %w", err)
 	}
 
-	dl.Infof("listener ready for share '%s'", token)
+	dl.Info("listener ready for persistent zrok share")
 
 	return &Share{
-		root:       root,
-		share:      nil,
-		listener:   listener,
-		token:      token,
-		persistent: true,
+		root:      root,
+		listener:  listener,
+		token:     token,
+		generated: false,
+		shareOps:  shareOps,
 	}, nil
 }
 
-// Token returns the share token for client access.
-func (s *Share) Token() string {
-	return s.token
+// GeneratedToken returns the share token only when this process created it.
+func (s *Share) GeneratedToken() (string, bool) {
+	if !s.generated {
+		return "", false
+	}
+	return s.token, true
 }
 
 // Listener returns the net.Listener for serving HTTP.
@@ -118,7 +152,7 @@ func (s *Share) Listener() net.Listener {
 }
 
 // Close terminates the share and cleans up resources.
-// for persistent shares, only the listener is closed (the share is managed externally).
+// for supplied persistent shares, only the listener is closed.
 func (s *Share) Close() error {
 	var lastErr error
 
@@ -129,14 +163,18 @@ func (s *Share) Close() error {
 		}
 	}
 
-	// delete the share only if we created it (not persistent)
-	if !s.persistent && s.share != nil && s.root != nil {
-		if err := sdk.DeleteShare(s.root, s.share); err != nil {
+	// delete the share only if this process created it.
+	if s.generated && s.share != nil && s.root != nil && s.shareOps != nil {
+		if err := s.shareOps.DeleteShare(s.root, s.share); err != nil {
 			dl.Errorf("error deleting share: %v", err)
 			lastErr = err
 		}
 	}
 
-	dl.Infof("share '%s' closed", s.token)
+	if s.generated {
+		dl.Infof("share '%s' closed", s.token)
+	} else {
+		dl.Info("persistent zrok share closed")
+	}
 	return lastErr
 }

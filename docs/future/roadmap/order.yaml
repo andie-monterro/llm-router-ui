@@ -1,5 +1,4 @@
 horizon:
-  - dynamic-key-management-api.md
   - gateway-side-spend-limits.md
   - per-key-model-list-filtering.md
   - api-key-expiry.md
@@ -7,3 +6,6 @@ horizon:
 researching:
   - per-key-metrics.md
   - key-storage.md
+building:
+evaluating:
+  - dummy-keys-reference-server.md

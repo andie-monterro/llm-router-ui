@@ -10,9 +10,9 @@ import (
 )
 
 // Dialer hands out shared *http.Client values for agora-backend tunnels,
-// parallel to the gateway's zrok Access. Each unique tunnel is attached once at
+// parallel to the gateway's zrok Access. each unique tunnel is attached once at
 // startup — a control-plane reservation, idempotent per (environment, tunnel) —
-// and detached once at process shutdown. The attachment is explicitly NOT
+// and detached once at process shutdown. the attachment is explicitly NOT
 // acquired per client session; per-connection work is the Dial inside
 // DialContext, and the shared client is safe for concurrent use.
 type Dialer struct {
@@ -27,8 +27,8 @@ func newDialer(sub *Subsystem) *Dialer {
 
 // Attach reserves the dialer attachment for tunnel and builds+caches the shared
 // HTTP client whose Transport.DialContext ignores addr and routes every request
-// through tunnel.Dial. It is called once per unique tunnel at startup; calling
-// it again for an already-attached name is a no-op. The controller makes Attach
+// through tunnel.Dial. it is called once per unique tunnel at startup; calling
+// it again for an already-attached name is a no-op. the controller makes Attach
 // idempotent, so a redundant reservation returns the existing one — a real
 // conflict (ambiguous name / UDP) surfaces as an error.
 func (d *Dialer) Attach(ctx context.Context, tunnelName string) error {
@@ -69,7 +69,7 @@ func (d *Dialer) Attach(ctx context.Context, tunnelName string) error {
 	return nil
 }
 
-// HTTPClient returns the shared client for an already-attached tunnel. It never
+// HTTPClient returns the shared client for an already-attached tunnel. it never
 // attaches and never changes any count; an unknown name (never attached at
 // startup) is a programming error.
 func (d *Dialer) HTTPClient(tunnelName string) (*http.Client, error) {

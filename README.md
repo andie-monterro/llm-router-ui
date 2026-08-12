@@ -198,10 +198,9 @@ api_keys:
   keys:
     - name: alice
       key: "sk-gw-a1b2c3d4e5f6..."
-      allowed_models: ["*"]
 ```
 
-Clients send the key via the `Authorization: Bearer <key>` header. The `/health` and `/metrics` endpoints remain unauthenticated. Keys can be restricted to specific models using glob patterns. See [docs/current/api-keys.md](docs/current/api-keys.md) for details.
+Clients send the key via the `Authorization: Bearer <key>` header. The `/health` and `/metrics` endpoints remain unauthenticated. Keys can be restricted to specific models using glob patterns. See [docs/current/api-keys.md](docs/current/api-keys.md) for the client-facing contract and [docs/current/key-sources.md](docs/current/key-sources.md) for reloadable YAML and HTTP sources.
 
 ## Semantic Routing
 
@@ -478,12 +477,14 @@ for chunk in stream:
 - [Providers](docs/current/providers.md) -- provider details, streaming, and error handling
 - [Semantic Routing](docs/current/semantic-routing.md) -- threshold tuning, comparison modes, and caching
 - [API Keys](docs/current/api-keys.md) -- per-key model and route restrictions
+- [Key Sources](docs/current/key-sources.md) -- reloadable key records, YAML and HTTP contracts, staleness, and observability
 - [Multi-Endpoint Load Balancing](docs/current/multi-endpoint.md) -- weighted load balancing and failover
 - [Metrics](docs/current/metrics.md) -- Prometheus instruments and example queries
 - [Streaming](docs/current/streaming.md) -- SSE streaming details
 - [zrok](docs/current/zrok.md) -- overlay networking for sharing and access
 - [Agora](docs/current/agora.md) -- Agora overlay networking for serving and dialing (peer transport to zrok)
 - [Dummy Model](docs/current/dummy-model.md) -- fake OpenAI-compatible backend for testing and demos
+- [Dummy Keys](docs/current/dummy-keys.md) -- reference key API serving the HTTP key-source contract, with fault injection
 
 ## License
 

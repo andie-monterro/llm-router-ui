@@ -98,7 +98,7 @@ func HandleNotFound(w http.ResponseWriter, r *http.Request) {
 
 // HandleMethodNotAllowed is a mux fallback for method-less patterns that
 // answers unsupported methods with an OpenAI-shaped 405 instead of net/http's
-// plain text. The explicit 405 matches OpenAI's own contract for method
+// plain text. the explicit 405 matches OpenAI's own contract for method
 // mismatches; StatusCodeForError stays the default mapping elsewhere.
 func HandleMethodNotAllowed(w http.ResponseWriter, r *http.Request) {
 	WriteError(w,
