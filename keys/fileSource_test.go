@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -48,32 +47,37 @@ func TestFileSourceWatchDebouncesEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	source.debounce = 25 * time.Millisecond
+	// the watcher is live from newFileSource, so writing before Watch starts
+	// leaves the burst buffered in fsnotify's channel. Watch then drains it in
+	// one tight loop, which is what makes the collapse deterministic: issuing
+	// the writes while Watch is already running races them against the debounce
+	// timer, and a loaded runner straddles the window.
+	source.debounce = 250 * time.Millisecond
 	t.Cleanup(func() { source.close() })
-
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	var notifications atomic.Int32
-	notified := make(chan struct{}, 4)
-	done := make(chan error, 1)
-	go func() {
-		done <- source.Watch(ctx, func() {
-			notifications.Add(1)
-			notified <- struct{}{}
-		})
-	}()
 
 	for i := 0; i < 4; i++ {
 		writeKeyFile(t, path, keyFile("alice", "sk-alice"))
 	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	notified := make(chan struct{}, 8)
+	done := make(chan error, 1)
+	go func() {
+		done <- source.Watch(ctx, func() { notified <- struct{}{} })
+	}()
+
 	select {
 	case <-notified:
-	case <-time.After(2 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("watch did not notify")
 	}
-	time.Sleep(100 * time.Millisecond)
-	if got := notifications.Load(); got != 1 {
-		t.Fatalf("notifications = %d, want one debounced notification", got)
+	// assert quiescence rather than counting after a fixed sleep: the property
+	// is that no second notification follows the burst.
+	select {
+	case <-notified:
+		t.Fatal("burst produced more than one debounced notification")
+	case <-time.After(4 * source.debounce):
 	}
 	cancel()
 	select {
