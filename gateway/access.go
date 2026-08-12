@@ -68,6 +68,7 @@ var defaultContextFactory zitiContextFactory = defaultZitiContextFactory{}
 type Access struct {
 	root       env_core.Root
 	access     *sdk.Access
+	label      string
 	shareToken string
 	httpClient *http.Client
 	transport  *http.Transport
@@ -77,8 +78,8 @@ type Access struct {
 	closeErr   error
 }
 
-// NewAccess creates a zrok access and HTTP client for the share token.
-func NewAccess(shareToken string) (*Access, error) {
+// NewAccess creates a labeled zrok access and HTTP client for the share token.
+func NewAccess(label, shareToken string) (*Access, error) {
 	root, err := environment.LoadRoot()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load zrok environment: %w", err)
@@ -88,24 +89,24 @@ func NewAccess(shareToken string) (*Access, error) {
 		return nil, fmt.Errorf("zrok environment is not enabled; run 'zrok enable' first")
 	}
 
-	return newAccess(root, shareToken, defaultAccessOps, defaultContextFactory)
+	return newAccess(root, label, shareToken, defaultAccessOps, defaultContextFactory)
 }
 
-func newAccess(root env_core.Root, shareToken string, accessOps zrokAccessOps, ctxFactory zitiContextFactory) (*Access, error) {
-	dl.Infof("creating zrok access for share '%s'", shareToken)
+func newAccess(root env_core.Root, label, shareToken string, accessOps zrokAccessOps, ctxFactory zitiContextFactory) (*Access, error) {
+	dl.Infof("creating zrok access for '%s'", label)
 
 	acc, err := accessOps.CreateAccess(root, &sdk.AccessRequest{ShareToken: shareToken})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create access: %w", err)
 	}
 
-	dl.Infof("zrok access created for share '%s'", shareToken)
+	dl.Infof("zrok access created for '%s'", label)
 
 	zitiCtx, err := ctxFactory.Load(root)
 	if err != nil {
-		dl.Errorf("failed to create ziti context for share '%s': %v", shareToken, err)
+		dl.Errorf("failed to create ziti context for zrok access '%s': %v", label, err)
 		if deleteErr := accessOps.DeleteAccess(root, acc); deleteErr != nil {
-			dl.Errorf("failed to delete access after ziti context setup error: %v", deleteErr)
+			dl.Errorf("failed to delete zrok access '%s' after ziti context setup error: %v", label, deleteErr)
 		}
 		return nil, err
 	}
@@ -113,6 +114,7 @@ func newAccess(root env_core.Root, shareToken string, accessOps zrokAccessOps, c
 	a := &Access{
 		root:       root,
 		access:     acc,
+		label:      label,
 		shareToken: shareToken,
 		zitiCtx:    zitiCtx,
 		accessOps:  accessOps,
@@ -155,13 +157,13 @@ func (a *Access) Close() error {
 		}
 
 		if a.access != nil {
-			dl.Infof("deleting zrok access for share '%s'", a.shareToken)
+			dl.Infof("deleting zrok access for '%s'", a.label)
 
 			if err := a.accessOps.DeleteAccess(a.root, a.access); err != nil {
-				dl.Errorf("error deleting access: %v", err)
+				dl.Errorf("error deleting zrok access '%s': %v", a.label, err)
 				firstErr = err
 			} else {
-				dl.Infof("zrok access deleted for share '%s'", a.shareToken)
+				dl.Infof("zrok access deleted for '%s'", a.label)
 			}
 			a.access = nil
 		}

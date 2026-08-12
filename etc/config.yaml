@@ -48,7 +48,6 @@ providers:
 #       allowed_routes: ["coding", "general"]   # optional: semantic route names (default: all)
 #     - name: ci-pipeline
 #       key: "${CI_GATEWAY_KEY}"                # supports env var substitution
-#       allowed_models: ["*"]
 
 # request tracing
 # when enabled, logs a structured summary of each chat completion request

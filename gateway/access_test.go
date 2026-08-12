@@ -1,17 +1,34 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/michaelquigley/df/dl"
 	"github.com/openziti/sdk-golang/ziti"
 	"github.com/openziti/sdk-golang/ziti/edge"
 	"github.com/openziti/zrok/v2/environment/env_core"
 	"github.com/openziti/zrok/v2/sdk/golang/sdk"
 )
+
+func captureGatewayLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var output bytes.Buffer
+	opts := dl.DefaultOptions()
+	opts.Level = slog.LevelDebug
+	opts.UseJSON = false
+	opts.UseColor = false
+	opts.Output = &output
+	dl.Init(opts)
+	t.Cleanup(func() { dl.Init() })
+	return &output
+}
 
 type fakeAccessOps struct {
 	created     int
@@ -142,7 +159,7 @@ func TestNewAccessCreatesPersistentTransport(t *testing.T) {
 	ops := &fakeAccessOps{}
 	ctxFactory := &fakeContextFactory{ctx: &fakeZitiContext{}}
 
-	access, err := newAccess(nil, "share-token", ops, ctxFactory)
+	access, err := newAccess(nil, "test", "share-token", ops, ctxFactory)
 	if err != nil {
 		t.Fatalf("newAccess returned error: %v", err)
 	}
@@ -169,7 +186,7 @@ func TestAccessTransportReusesSingleZitiContext(t *testing.T) {
 	ctx := &fakeZitiContext{}
 	ctxFactory := &fakeContextFactory{ctx: ctx}
 
-	access, err := newAccess(nil, "share-token", ops, ctxFactory)
+	access, err := newAccess(nil, "test", "share-token", ops, ctxFactory)
 	if err != nil {
 		t.Fatalf("newAccess returned error: %v", err)
 	}
@@ -200,7 +217,7 @@ func TestNewAccessDeletesAccessOnContextSetupFailure(t *testing.T) {
 	ops := &fakeAccessOps{}
 	ctxFactory := &fakeContextFactory{loadErr: errors.New("boom")}
 
-	access, err := newAccess(nil, "share-token", ops, ctxFactory)
+	access, err := newAccess(nil, "test", "share-token", ops, ctxFactory)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -220,7 +237,7 @@ func TestAccessCloseClosesResourcesAndIsIdempotent(t *testing.T) {
 	ctx := &fakeZitiContext{}
 	ctxFactory := &fakeContextFactory{ctx: ctx}
 
-	access, err := newAccess(nil, "share-token", ops, ctxFactory)
+	access, err := newAccess(nil, "test", "share-token", ops, ctxFactory)
 	if err != nil {
 		t.Fatalf("newAccess returned error: %v", err)
 	}
@@ -254,7 +271,7 @@ func TestAccessCloseReturnsDeleteErrorAfterClosingLocalResources(t *testing.T) {
 	ctx := &fakeZitiContext{}
 	ctxFactory := &fakeContextFactory{ctx: ctx}
 
-	access, err := newAccess(nil, "share-token", ops, ctxFactory)
+	access, err := newAccess(nil, "test", "share-token", ops, ctxFactory)
 	if err != nil {
 		t.Fatalf("newAccess returned error: %v", err)
 	}
@@ -271,5 +288,34 @@ func TestAccessCloseReturnsDeleteErrorAfterClosingLocalResources(t *testing.T) {
 	}
 	if access.httpClient != nil {
 		t.Fatal("expected httpClient to be nil after close")
+	}
+}
+
+func TestAccessLifecycleLogsLabelWithoutShareToken(t *testing.T) {
+	const label = "managed-keys"
+	const shareToken = "access-share-token-sentinel"
+	logs := captureGatewayLogs(t)
+
+	ops := &fakeAccessOps{}
+	access, err := newAccess(nil, label, shareToken, ops, &fakeContextFactory{ctx: &fakeZitiContext{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := access.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if output := logs.String(); strings.Contains(output, shareToken) || !strings.Contains(output, label) {
+		t.Fatalf("successful access lifecycle logs = %q", output)
+	}
+
+	logs.Reset()
+	ops = &fakeAccessOps{deleteErr: errors.New("cleanup failed")}
+	_, err = newAccess(nil, label, shareToken, ops, &fakeContextFactory{loadErr: errors.New("context failed")})
+	if err == nil {
+		t.Fatal("newAccess() succeeded, want context failure")
+	}
+	if output := logs.String(); strings.Contains(output, shareToken) || !strings.Contains(output, label) ||
+		!strings.Contains(output, "cleanup failed") {
+		t.Fatalf("failed access lifecycle logs = %q", output)
 	}
 }

@@ -6,8 +6,10 @@ tags: [enhancement, spike]
 milestone: v0.1.x
 ---
 
-Move virtual API keys out of the plaintext config into a dedicated key store, held as hashes rather than recoverable secrets.
+Finish the plaintext-free storage story for virtual API keys.
 
 ## Discussion
 
-Two aspects of one goal: a dedicated store decouples keys from the main config, and hashing (e.g. SHA-256, incoming tokens hashed before lookup) means that store holds no recoverable secret. The hashing tradeoff stands — a key can't be read back once stored. The spike is the backend: a YAML file, a SQLite database, or a pluggable strategy the gateway adapts to other data sources; the choice and the abstraction boundary are the open question. A mutable store is also what dynamic-key-management needs — runtime create/revoke/list has nowhere to write against a static config.
+The gateway's resident store now holds only SHA-256 digests, hashes incoming bearer tokens before lookup, and accepts `key_sha256` from file and HTTP sources. External management planes can therefore keep no recoverable gateway secret, and the HTTP source already adapts database- or Vault-backed stores without putting their drivers in the gateway.
+
+The remaining plaintext path is boot-resident inline configuration, whose schema accepts only `key`. Decide whether to add a digest form there, remove plaintext inline keys entirely, or provide a purpose-built local store with a separate security posture. Key creation, recovery, rotation history, and any write API remain management-plane concerns rather than responsibilities of the resident read-side store.

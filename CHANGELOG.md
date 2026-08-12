@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+FEATURE: Virtual API keys can now be composed from boot-resident config keys, reloadable strict-YAML files, and a versioned HTTP key API. Sources refresh without restarting, converge through polling plus optional file watches and Unix `SIGHUP`, hold last-known-good on reload failure, and support optional fail-closed exclusion through `max_staleness`. The resident store keeps only SHA-256 digests, source records may publish `key_sha256` and exact-boundary `expires_at`, HTTP refreshes support ETag/conditional `304`, and four OpenTelemetry instruments expose refresh results, freshness, exclusion, and resident cardinality. See [docs/current/key-sources.md](docs/current/key-sources.md).
+
+CHANGE: Virtual API-key configuration and source documents now decode strictly. Unknown or duplicate fields, type coercions, invalid model globs, malformed key material, and unsupported schema versions fail loudly rather than silently widening access; plaintext keys must fit the HTTP bearer-token grammar. `api_keys.enabled: true` may contain only external sources, while a declared source requires authentication to be enabled. Config keys remain first in precedence so they can serve as break-glass credentials. See [docs/current/api-keys.md](docs/current/api-keys.md).
+
+FIX: Operator-supplied zrok share tokens no longer appear in access, provider, endpoint, key-source, persistent-share, or cleanup logs. Lifecycle messages use non-secret owner labels instead. Tokens generated for ephemeral gateway shares remain startup output because that is how the operator learns the new address.
+
 ## v0.1.6
 
 FEATURE: Sterling capability coordinates can be carried as strict virtual model aliases on the existing OpenAI chat surface. The gateway resolves `sterling-capability:sterling-classes/v1/<class>` to the configured route model before provider dispatch while applying explicit-model policy plus route and concrete-model API-key restrictions. The v1 vocabulary currently contains only `frontier-coding`.

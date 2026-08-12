@@ -74,6 +74,18 @@ A high proportion of `default` decisions may indicate that thresholds are too st
 
 **`llm_gateway.endpoint.healthy`** (up-down counter) -- per-endpoint health status for multi-endpoint mode. Value is 1 for healthy endpoints and 0 for unhealthy endpoints. The `endpoint` attribute identifies the endpoint by name.
 
+### Key Source Metrics
+
+**`llm_gateway.keys.source.staleness`** (observable gauge, seconds) -- age of each reloadable key source's last successful load. The `source` attribute identifies the configured source. Boot-resident `config` keys are omitted, as is an optional source that has never loaded successfully.
+
+**`llm_gateway.keys.source.excluded`** (observable gauge) -- whether a reloadable key source is currently excluded by `max_staleness`. Value is 1 when excluded and 0 when contributing. It has the same `source` scope as the staleness gauge.
+
+**`llm_gateway.keys.refresh`** (counter) -- key-source refresh attempts. Attributes are `source` and `result`, where `result` is `success`, `not_modified`, or `failure`.
+
+**`llm_gateway.keys.resident`** (observable gauge) -- records in the current composed key snapshot after precedence and staleness exclusion. It has no attributes.
+
+See [Key Sources](key-sources.md) for the reload and exclusion semantics behind these instruments.
+
 ## Prometheus Scraping
 
 Point your Prometheus instance at the gateway's `/metrics` endpoint:

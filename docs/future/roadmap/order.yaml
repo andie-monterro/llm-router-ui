@@ -6,5 +6,3 @@ horizon:
 researching:
   - per-key-metrics.md
   - key-storage.md
-building:
-  - dynamic-key-management.md

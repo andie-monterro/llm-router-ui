@@ -32,7 +32,7 @@ type Gateway struct {
 	openaiHTTPClient *http.Client
 	agora            *agora.Subsystem
 	agoraDial        func(string) (*http.Client, error)
-	createAccess     func(string) (*Access, error)
+	createAccess     func(string, string) (*Access, error)
 	meters           *meters
 	metricsHandler   http.Handler
 }
@@ -134,11 +134,7 @@ func (g *Gateway) keySourceHTTPClient(source *keys.HTTPSourceConfig) (*http.Clie
 		return g.agoraDial(agoraTunnel)
 	}
 	if source.ZrokShareToken != "" {
-		factory := g.createAccess
-		if factory == nil {
-			factory = NewAccess
-		}
-		access, err := factory(source.ZrokShareToken)
+		access, err := g.newAccess(source.Name, source.ZrokShareToken)
 		if err != nil {
 			return nil, err
 		}
@@ -146,6 +142,14 @@ func (g *Gateway) keySourceHTTPClient(source *keys.HTTPSourceConfig) (*http.Clie
 		return access.HTTPClient(), nil
 	}
 	return http.DefaultClient, nil
+}
+
+func (g *Gateway) newAccess(label, shareToken string) (*Access, error) {
+	factory := g.createAccess
+	if factory == nil {
+		factory = NewAccess
+	}
+	return factory(label, shareToken)
 }
 
 func (g *Gateway) initProviders() error {
@@ -172,14 +176,14 @@ func (g *Gateway) initProviders() error {
 			g.providers[providers.ProviderOpenAI] = providers.NewOpenAIWithClient(apiKey, baseURL, client)
 			dl.Infof("initialized openai provider via agora tunnel '%s'", g.cfg.Providers.OpenAI.AgoraTunnel)
 		} else if g.cfg.Providers.OpenAI.ZrokShareToken != "" {
-			access, err := NewAccess(g.cfg.Providers.OpenAI.ZrokShareToken)
+			access, err := g.newAccess("openai", g.cfg.Providers.OpenAI.ZrokShareToken)
 			if err != nil {
 				return err
 			}
 			g.accesses = append(g.accesses, access)
 			g.openaiHTTPClient = access.HTTPClient()
 			g.providers[providers.ProviderOpenAI] = providers.NewOpenAIWithClient(apiKey, baseURL, g.openaiHTTPClient)
-			dl.Infof("initialized openai provider via zrok share '%s'", g.cfg.Providers.OpenAI.ZrokShareToken)
+			dl.Info("initialized openai provider via zrok")
 		} else {
 			g.providers[providers.ProviderOpenAI] = providers.NewOpenAI(apiKey, baseURL)
 			if baseURL != "" {
@@ -205,13 +209,13 @@ func (g *Gateway) initProviders() error {
 			g.providers[providers.ProviderAnthropic] = providers.NewAnthropicWithClient(apiKey, baseURL, client)
 			dl.Infof("initialized anthropic provider via agora tunnel '%s'", g.cfg.Providers.Anthropic.AgoraTunnel)
 		} else if g.cfg.Providers.Anthropic.ZrokShareToken != "" {
-			access, err := NewAccess(g.cfg.Providers.Anthropic.ZrokShareToken)
+			access, err := g.newAccess("anthropic", g.cfg.Providers.Anthropic.ZrokShareToken)
 			if err != nil {
 				return err
 			}
 			g.accesses = append(g.accesses, access)
 			g.providers[providers.ProviderAnthropic] = providers.NewAnthropicWithClient(apiKey, baseURL, access.HTTPClient())
-			dl.Infof("initialized anthropic provider via zrok share '%s'", g.cfg.Providers.Anthropic.ZrokShareToken)
+			dl.Info("initialized anthropic provider via zrok")
 		} else {
 			g.providers[providers.ProviderAnthropic] = providers.NewAnthropic(apiKey, baseURL)
 			if baseURL != "" {
@@ -249,14 +253,14 @@ func (g *Gateway) initLocalSingle() error {
 		g.providers[providers.ProviderLocal] = providers.NewLocalWithClient(cfg.BaseURL, g.localHTTPClient)
 		dl.Infof("initialized local provider via agora tunnel '%s'", cfg.AgoraTunnel)
 	} else if cfg.ZrokShareToken != "" {
-		access, err := NewAccess(cfg.ZrokShareToken)
+		access, err := g.newAccess("local", cfg.ZrokShareToken)
 		if err != nil {
 			return fmt.Errorf("create zrok access for local provider: %w", err)
 		}
 		g.accesses = append(g.accesses, access)
 		g.localHTTPClient = access.HTTPClient()
 		g.providers[providers.ProviderLocal] = providers.NewLocalWithClient(cfg.BaseURL, g.localHTTPClient)
-		dl.Infof("initialized local provider via zrok share '%s'", cfg.ZrokShareToken)
+		dl.Info("initialized local provider via zrok")
 	} else {
 		g.providers[providers.ProviderLocal] = providers.NewLocal(cfg.BaseURL)
 		dl.Infof("initialized local provider at '%s'", cfg.BaseURL)
@@ -284,7 +288,7 @@ func (g *Gateway) initLocalMulti() error {
 			}
 			opt.HTTPClient = client
 		} else if ep.ZrokShareToken != "" {
-			access, err := NewAccess(ep.ZrokShareToken)
+			access, err := g.newAccess(ep.Name, ep.ZrokShareToken)
 			if err != nil {
 				return fmt.Errorf("failed to create zrok access for endpoint '%s': %w", ep.Name, err)
 			}
@@ -315,7 +319,7 @@ func (g *Gateway) initLocalMulti() error {
 		if ep.AgoraTunnel != "" {
 			dl.Infof("initialized local endpoint '%s' via agora tunnel '%s'", ep.Name, ep.AgoraTunnel)
 		} else if ep.ZrokShareToken != "" {
-			dl.Infof("initialized local endpoint '%s' via zrok share '%s'", ep.Name, ep.ZrokShareToken)
+			dl.Infof("initialized local endpoint '%s' via zrok", ep.Name)
 		} else {
 			dl.Infof("initialized local endpoint '%s' at '%s'", ep.Name, ep.BaseURL)
 		}
@@ -401,7 +405,7 @@ func (g *Gateway) Run() error {
 			return err
 		}
 		g.share = share
-		dl.Infof("serving via zrok share '%s'", share.Token())
+		logZrokServing(share)
 		bound = append(bound, boundServer{&http.Server{Handler: handler}, share.Listener(), "zrok"})
 	}
 
@@ -444,6 +448,14 @@ func (g *Gateway) Run() error {
 		shutdownHTTPServers(servers)
 		return err
 	}
+}
+
+func logZrokServing(share *Share) {
+	if token, generated := share.GeneratedToken(); generated {
+		dl.Infof("serving via zrok share '%s'", token)
+		return
+	}
+	dl.Info("serving via persistent zrok share")
 }
 
 func (g *Gateway) dispatchSignal(signal os.Signal) bool {

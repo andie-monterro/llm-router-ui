@@ -145,7 +145,6 @@ api_keys:
   keys:
     - name: alice
       key: "sk-gw-a1b2c3d4e5f6..."
-      allowed_models: ["*"]
 ```
 
 Clients must now send the key in the `Authorization` header:
@@ -172,7 +171,7 @@ keys:
     allowed_models: ["llama3"]              # local models only
 ```
 
-See [api-keys.md](api-keys.md) for route restrictions and the full authentication flow.
+See [api-keys.md](api-keys.md) for route restrictions and the full authentication flow. Keys that must change without restarting can come from reloadable YAML or HTTP sources; see [key-sources.md](key-sources.md).
 
 ## 5. Semantic Routing
 
@@ -414,7 +413,6 @@ api_keys:
   keys:
     - name: alice
       key: "${ALICE_GATEWAY_KEY}"
-      allowed_models: ["*"]
 
 routing:
   default_route: general
@@ -470,6 +468,7 @@ tracing:
 - [providers.md](providers.md) -- provider details, streaming, and error handling
 - [semantic-routing.md](semantic-routing.md) -- threshold tuning, comparison modes, and caching
 - [api-keys.md](api-keys.md) -- per-key model and route restrictions
+- [key-sources.md](key-sources.md) -- reloadable YAML and HTTP key sources
 - [multi-endpoint.md](multi-endpoint.md) -- weighted load balancing and failover
 - [zrok.md](zrok.md) -- overlay networking for sharing and access
 - [metrics.md](metrics.md) -- Prometheus instruments and example queries

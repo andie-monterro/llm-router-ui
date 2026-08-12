@@ -42,7 +42,10 @@ func TestKeySourceHTTPClientSelection(t *testing.T) {
 
 	zrokClient := &http.Client{}
 	gateway.agoraDial = nil
-	gateway.createAccess = func(token string) (*Access, error) {
+	gateway.createAccess = func(label, token string) (*Access, error) {
+		if label != "managed" {
+			t.Fatalf("zrok access label = %q", label)
+		}
 		if token != "zrok-token" {
 			t.Fatalf("zrok token = %q", token)
 		}
@@ -53,6 +56,64 @@ func TestKeySourceHTTPClientSelection(t *testing.T) {
 	})
 	if err != nil || selected != zrokClient || len(gateway.accesses) != 1 {
 		t.Fatalf("zrok selection = %p, %v, accesses %d", selected, err, len(gateway.accesses))
+	}
+}
+
+func TestZrokProviderInitializationDoesNotLogShareTokens(t *testing.T) {
+	logs := captureGatewayLogs(t)
+	client := &http.Client{Transport: keySourceRoundTripper(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{}`)),
+			Request:    request,
+		}, nil
+	})}
+	newGateway := func(cfg *Config, wantLabels map[string]string) *Gateway {
+		gateway := &Gateway{
+			cfg:       cfg,
+			providers: make(map[providers.ProviderType]providers.Provider),
+		}
+		gateway.createAccess = func(label, token string) (*Access, error) {
+			if wantToken, ok := wantLabels[label]; !ok || token != wantToken {
+				t.Fatalf("NewAccess(%q, %q), want labels %#v", label, token, wantLabels)
+			}
+			return &Access{label: label, shareToken: token, httpClient: client}, nil
+		}
+		return gateway
+	}
+
+	providerTokens := map[string]string{
+		"openai":    "openai-share-token-sentinel",
+		"anthropic": "anthropic-share-token-sentinel",
+		"local":     "local-share-token-sentinel",
+	}
+	gateway := newGateway(&Config{Providers: &ProvidersConfig{
+		OpenAI:    &OpenAIConfig{APIKey: "sk-openai", ZrokShareToken: providerTokens["openai"]},
+		Anthropic: &AnthropicConfig{APIKey: "sk-anthropic", ZrokShareToken: providerTokens["anthropic"]},
+		Local:     &LocalConfig{BaseURL: "http://local.invalid", ZrokShareToken: providerTokens["local"]},
+	}}, providerTokens)
+	if err := gateway.initProviders(); err != nil {
+		t.Fatal(err)
+	}
+	gateway.cleanup()
+
+	endpointTokens := map[string]string{"gpu-one": "endpoint-share-token-sentinel"}
+	gateway = newGateway(&Config{Providers: &ProvidersConfig{Local: &LocalConfig{Endpoints: []LocalEndpointConfig{
+		{Name: "gpu-one", BaseURL: "http://gpu.invalid", ZrokShareToken: endpointTokens["gpu-one"]},
+	}}}}, endpointTokens)
+	if err := gateway.initProviders(); err != nil {
+		t.Fatal(err)
+	}
+	gateway.cleanup()
+
+	output := logs.String()
+	for _, token := range []string{
+		providerTokens["openai"], providerTokens["anthropic"], providerTokens["local"], endpointTokens["gpu-one"],
+	} {
+		if strings.Contains(output, token) {
+			t.Fatalf("provider initialization logs exposed zrok token %q: %q", token, output)
+		}
 	}
 }
 
