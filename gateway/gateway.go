@@ -578,7 +578,7 @@ func (g *Gateway) resolveRoutingProvider(provider string) (baseURL, apiKey strin
 			return "", "", nil, fmt.Errorf("routing provider 'openai' not configured")
 		}
 		if g.cfg.Providers.OpenAI.APIKey == "" {
-			return "", "", nil, fmt.Errorf("routing provider 'openai' requires providers.openai.api_key")
+			return "", "", nil, fmt.Errorf("routing provider 'openai' requires providers.open_ai.api_key")
 		}
 		apiKey = g.cfg.Providers.OpenAI.APIKey
 		baseURL = g.cfg.Providers.OpenAI.BaseURL

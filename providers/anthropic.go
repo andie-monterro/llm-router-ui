@@ -58,7 +58,7 @@ type anthropicMessage struct {
 
 // anthropicContentBlock serves three roles: request tool_use blocks (built from
 // assistant tool_calls), request tool_result blocks (built from tool messages),
-// and response blocks (text or tool_use) read back from Anthropic. Every
+// and response blocks (text or tool_use) read back from Anthropic. every
 // optional field is omitempty so unused fields don't leak into the wire format.
 type anthropicContentBlock struct {
 	Type   string          `json:"type"`
@@ -469,7 +469,7 @@ func (a *Anthropic) convertAssistantMessage(msg Message) anthropicMessage {
 	return anthropicMessage{Role: "assistant", Content: blocks}
 }
 
-// translateTools maps OpenAI function tools to anthropic tools. Non-function
+// translateTools maps OpenAI function tools to anthropic tools. non-function
 // tools are skipped; nil/empty parameters default to an empty object schema.
 func (a *Anthropic) translateTools(tools []Tool) []anthropicTool {
 	if len(tools) == 0 {

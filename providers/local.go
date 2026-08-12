@@ -223,20 +223,32 @@ func (l *Local) listModelsLegacyTags(ctx context.Context) ([]Model, error) {
 	return models, nil
 }
 
+// parseError maps a backend error body to an APIError. the OpenAI envelope is
+// tried first: vLLM, SGLang, and llama-server all speak it, and reading their
+// 400 as a server error would report a client mistake as a gateway failure.
+// ollama's native {"error": "message"} form is the legacy fallback.
 func (l *Local) parseError(statusCode int, body []byte) error {
-	var errResp struct {
-		Error string `json:"error"`
-	}
-	if err := json.Unmarshal(body, &errResp); err == nil && errResp.Error != "" {
-		return NewAPIError(errResp.Error, ErrorTypeServer)
+	var openaiResp ErrorResponse
+	if err := json.Unmarshal(body, &openaiResp); err == nil && openaiResp.Error.Message != "" {
+		return &openaiResp.Error
 	}
 
+	var ollamaResp struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &ollamaResp); err == nil && ollamaResp.Error != "" {
+		return NewAPIError(ollamaResp.Error, ErrorTypeServer)
+	}
+
+	// the body parsed as neither envelope. it belongs to an arbitrary backend
+	// reached over an operator-configured transport, so its contents are not
+	// safe to hand a client; report the status instead.
 	switch statusCode {
 	case http.StatusNotFound:
 		return NewAPIError("model not found", ErrorTypeNotFound)
 	case http.StatusServiceUnavailable:
 		return NewAPIError("service unavailable", ErrorTypeServiceUnavailable)
 	default:
-		return NewAPIError(fmt.Sprintf("backend API error: %s", string(body)), ErrorTypeServer)
+		return NewAPIError(fmt.Sprintf("backend API error (HTTP %d)", statusCode), ErrorTypeServer)
 	}
 }

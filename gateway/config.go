@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 
@@ -153,10 +154,10 @@ func (c *Config) expandEnv() error {
 
 	if c.Providers != nil {
 		if p := c.Providers.OpenAI; p != nil {
-			if err := expand("providers.openai.api_key", &p.APIKey); err != nil {
+			if err := expand("providers.open_ai.api_key", &p.APIKey); err != nil {
 				return err
 			}
-			if err := expand("providers.openai.base_url", &p.BaseURL); err != nil {
+			if err := expand("providers.open_ai.base_url", &p.BaseURL); err != nil {
 				return err
 			}
 		}
@@ -225,7 +226,7 @@ func (c *Config) validateProviders() error {
 		return nil
 	}
 	if p := c.Providers.OpenAI; p != nil {
-		if err := check("openai", p.APIKey, p.ZrokShareToken, p.AgoraTunnel); err != nil {
+		if err := check("open_ai", p.APIKey, p.ZrokShareToken, p.AgoraTunnel); err != nil {
 			return err
 		}
 	}
@@ -244,6 +245,46 @@ func (c *Config) validateProviders() error {
 			return fmt.Errorf("providers.local.zrok_share_token is ignored in multi-endpoint mode; move it onto an endpoint")
 		}
 	}
+
+	// a written base_url the gateway cannot dial is configuration it cannot
+	// honor. deferring it to the request path starts the gateway reporting
+	// healthy while every affected call fails.
+	if p := c.Providers.OpenAI; p != nil {
+		if err := validateBaseURL("providers.open_ai.base_url", p.BaseURL); err != nil {
+			return err
+		}
+	}
+	if p := c.Providers.Anthropic; p != nil {
+		if err := validateBaseURL("providers.anthropic.base_url", p.BaseURL); err != nil {
+			return err
+		}
+	}
+	if l := c.Providers.Local; l != nil {
+		if err := validateBaseURL("providers.local.base_url", l.BaseURL); err != nil {
+			return err
+		}
+		for i := range l.Endpoints {
+			field := fmt.Sprintf("providers.local.endpoints[%d].base_url", i)
+			if err := validateBaseURL(field, l.Endpoints[i].BaseURL); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// validateBaseURL accepts an empty value as "not configured" and otherwise
+// requires an absolute HTTP(S) URL with a host, matching what the key
+// subsystem requires of a source base_url.
+func validateBaseURL(field, value string) error {
+	if value == "" {
+		return nil
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" ||
+		(!strings.EqualFold(parsed.Scheme, "http") && !strings.EqualFold(parsed.Scheme, "https")) {
+		return fmt.Errorf("%s must be an absolute HTTP(S) URL", field)
+	}
 	return nil
 }
 
@@ -254,7 +295,7 @@ func (c *Config) AgoraServeEnabled() bool {
 }
 
 // AgoraPublishEnabled reports whether the gateway should publish a catalog
-// advertisement. Publishing requires serving in this iteration: a dial-only
+// advertisement. publishing requires serving in this iteration: a dial-only
 // gateway never publishes an advertisement whose name points at a front-door
 // tunnel it does not bind.
 func (c *Config) AgoraPublishEnabled() bool {

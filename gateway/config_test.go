@@ -355,7 +355,7 @@ func TestResolveEmbedProviderRefusesUnusable(t *testing.T) {
 	// error, not a runtime 401.
 	g := &Gateway{cfg: &Config{Providers: &ProvidersConfig{OpenAI: &OpenAIConfig{}}}}
 	if _, _, _, err := g.resolveRoutingProvider("openai"); err == nil ||
-		!strings.Contains(err.Error(), "requires providers.openai.api_key") {
+		!strings.Contains(err.Error(), "requires providers.open_ai.api_key") {
 		t.Fatalf("resolveRoutingProvider() = %v, want keyless-openai error", err)
 	}
 
@@ -378,7 +378,7 @@ func TestValidateProvidersOverlayRequiresAPIKey(t *testing.T) {
 			cfg: &Config{Providers: &ProvidersConfig{
 				OpenAI: &OpenAIConfig{AgoraTunnel: "egress"},
 			}},
-			wantErr: "providers.openai.agora_tunnel",
+			wantErr: "providers.open_ai.agora_tunnel",
 		},
 		{
 			name: "anthropic zrok token without key",
@@ -424,6 +424,78 @@ func TestValidateProvidersOverlayRequiresAPIKey(t *testing.T) {
 			cfg: &Config{Providers: &ProvidersConfig{
 				OpenAI:    &OpenAIConfig{},
 				Anthropic: &AnthropicConfig{},
+			}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.validateProviders()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validateProviders() = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("validateProviders() = %v, want error containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// a written base_url the gateway cannot dial is configuration it cannot honor;
+// deferring it to the request path starts the gateway healthy but dark. the key
+// subsystem already enforces this on a source base_url.
+func TestValidateProvidersBaseURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     *Config
+		wantErr string
+	}{
+		{
+			name: "openai missing scheme",
+			cfg: &Config{Providers: &ProvidersConfig{
+				OpenAI: &OpenAIConfig{APIKey: "sk-test", BaseURL: "api.openai.com"},
+			}},
+			wantErr: "providers.open_ai.base_url",
+		},
+		{
+			name: "anthropic unsupported scheme",
+			cfg: &Config{Providers: &ProvidersConfig{
+				Anthropic: &AnthropicConfig{APIKey: "sk-test", BaseURL: "ftp://api.anthropic.com"},
+			}},
+			wantErr: "providers.anthropic.base_url",
+		},
+		{
+			name: "local missing host",
+			cfg: &Config{Providers: &ProvidersConfig{
+				Local: &LocalConfig{BaseURL: "http://"},
+			}},
+			wantErr: "providers.local.base_url",
+		},
+		{
+			name: "endpoint names its index",
+			cfg: &Config{Providers: &ProvidersConfig{
+				Local: &LocalConfig{Endpoints: []LocalEndpointConfig{
+					{Name: "a", BaseURL: "http://10.0.0.1:11434"},
+					{Name: "b", BaseURL: "10.0.0.2:11434"},
+				}},
+			}},
+			wantErr: "providers.local.endpoints[1].base_url",
+		},
+		{
+			name: "empty base_url is not configured",
+			cfg: &Config{Providers: &ProvidersConfig{
+				OpenAI: &OpenAIConfig{APIKey: "sk-test"},
+				Local:  &LocalConfig{},
+			}},
+		},
+		{
+			name: "http and https both accepted",
+			cfg: &Config{Providers: &ProvidersConfig{
+				OpenAI: &OpenAIConfig{APIKey: "sk-test", BaseURL: "https://api.openai.com"},
+				Local:  &LocalConfig{BaseURL: "http://localhost:11434"},
 			}},
 		},
 	}

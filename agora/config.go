@@ -31,7 +31,7 @@ type ServeConfig struct {
 	Enabled bool
 	// Tunnel is the bind-target tunnel name. the tunnel must already exist as a
 	// direct, tcp-mode tunnel that the gateway's account owns; the gateway binds
-	// to it and never creates or deletes it. Defaults to InstanceName.
+	// to it and never creates or deletes it. defaults to InstanceName.
 	Tunnel string
 }
 

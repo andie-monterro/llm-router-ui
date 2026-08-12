@@ -2,7 +2,7 @@ package gateway
 
 // capabilityExtras derives llm-gateway agora capabilities from the configured
 // providers and routing. it returns only the extras; the base capability
-// ("llm-routing") is supplied by the caller via agora.Derive. Ported from the
+// ("llm-routing") is supplied by the caller via agora.Derive. ported from the
 // first agora pass (origin/agora-v0.1.0:gateway/agora_capabilities.go).
 // secrets are expanded once at config load, so the APIKey gates here read the
 // same values initProviders and collectAgoraTunnels do.

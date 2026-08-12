@@ -8,6 +8,12 @@ CHANGE: Virtual API-key configuration and source documents now decode strictly. 
 
 FIX: Operator-supplied zrok share tokens no longer appear in access, provider, endpoint, key-source, persistent-share, or cleanup logs. Lifecycle messages use non-secret owner labels instead. Tokens generated for ephemeral gateway shares remain startup output because that is how the operator learns the new address.
 
+FIX: Errors from an OpenAI-compatible local backend keep their own type and status instead of becoming a gateway `server_error` with HTTP 500. The local provider read only Ollama's native `{"error": "message"}` form, so a standard `{"error": {"message": ..., "type": ...}}` envelope from vLLM, SGLang, or llama-server fell through to a generic server error -- reporting a client's bad request as a gateway failure. The OpenAI envelope is now read first and the Ollama form remains a fallback. A response body matching neither envelope no longer appears in the client-visible message, since the local provider fronts arbitrary operator-configured backends whose bodies are not the gateway's to forward.
+
+FIX: A provider `base_url` that is not an absolute HTTP(S) URL is now a directed startup error naming the field, rather than a gateway that starts healthy and fails every affected request. This covers the OpenAI, Anthropic, and local blocks and each multi-endpoint entry; an omitted `base_url` still means "use the default" and is unaffected.
+
+FIX: Startup errors about the OpenAI provider now name `providers.open_ai.*`, the configuration key the gateway actually reads. They previously named `providers.openai.*`, which does not exist -- an operator following the message would search their config for a key that is not there and change nothing.
+
 ## v0.1.6
 
 FEATURE: Sterling capability coordinates can be carried as strict virtual model aliases on the existing OpenAI chat surface. The gateway resolves `sterling-capability:sterling-classes/v1/<class>` to the configured route model before provider dispatch while applying explicit-model policy plus route and concrete-model API-key restrictions. The v1 vocabulary currently contains only `frontier-coding`.

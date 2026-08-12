@@ -30,7 +30,7 @@ type SubsystemOptions struct {
 }
 
 // Subsystem manages the single runtime-less Agora agent and its serve, dial,
-// and catalog lifecycle. One *agent.Agent backs the serve listener, every
+// and catalog lifecycle. one *agent.Agent backs the serve listener, every
 // backend attach/dial, and catalog publish/retract.
 type Subsystem struct {
 	cfg           *Config
@@ -49,7 +49,7 @@ type Subsystem struct {
 }
 
 // agoraOps is the SDK seam that keeps the subsystem unit-testable without a
-// live controller. it wraps the thin Listen/Dial primitives plus catalog. The
+// live controller. it wraps the thin Listen/Dial primitives plus catalog. the
 // gateway is bind-only, so there is no Create/Delete: the serve tunnel is
 // operator-provisioned and never created or deleted here.
 type agoraOps interface {
@@ -139,7 +139,7 @@ func newSubsystemWithOps(opts SubsystemOptions, ops agoraOps) (*Subsystem, error
 
 	publishWanted := opts.PublishWanted && AdvertisementPublish(cfg)
 
-	// publishing requires workgroup scope IDs (controller-enforced). When
+	// publishing requires workgroup scope IDs (controller-enforced). when
 	// publishing is on by *default* and no workgroup IDs are configured,
 	// downgrade to serve-only with a notice — an enrolled account without an
 	// integration file can still serve. an *explicit* advertisement.publish:
@@ -247,7 +247,7 @@ func (s *Subsystem) ServeTunnelName() string {
 	return serveTunnelName(s.cfg, s.identity.InstanceName)
 }
 
-// StartPublishing ensures the Agora catalog advertisement exists. The
+// StartPublishing ensures the Agora catalog advertisement exists. the
 // advertisement Name follows the resolved serve-tunnel name (the dial key) and
 // the mode is the constant HTTP label, since the gateway serves HTTP over a
 // direct tcp-mode tunnel.
@@ -289,9 +289,9 @@ func (s *Subsystem) Dialer() *Dialer {
 	return s.dialer
 }
 
-// Close tears down Agora catalog, serve, dial, and agent resources. Detaching
-// revokes at the controller; OpenZiti terminates live sessions. Cleanup
-// continues even if a step fails, logging each failure. Bind-only: the serve
+// Close tears down Agora catalog, serve, dial, and agent resources. detaching
+// revokes at the controller; OpenZiti terminates live sessions. cleanup
+// continues even if a step fails, logging each failure. bind-only: the serve
 // step closes the listener and never deletes the operator-owned tunnel.
 func (s *Subsystem) Close() error {
 	if s == nil || s.closed {
