@@ -6,3 +6,6 @@ horizon:
 researching:
   - per-key-metrics.md
   - key-storage.md
+building:
+evaluating:
+  - dummy-keys-reference-server.md

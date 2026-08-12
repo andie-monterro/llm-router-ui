@@ -484,6 +484,7 @@ for chunk in stream:
 - [zrok](docs/current/zrok.md) -- overlay networking for sharing and access
 - [Agora](docs/current/agora.md) -- Agora overlay networking for serving and dialing (peer transport to zrok)
 - [Dummy Model](docs/current/dummy-model.md) -- fake OpenAI-compatible backend for testing and demos
+- [Dummy Keys](docs/current/dummy-keys.md) -- reference key API serving the HTTP key-source contract, with fault injection
 
 ## License
 

@@ -22,7 +22,7 @@ The enrolled environment is the source of truth for the controller endpoint. `ag
 
 ## Configuration
 
-Agora is configured under a top-level `agora:` block, plus an `agora_tunnel` field on any provider or endpoint you want to dial over the overlay.
+Agora is configured under a top-level `agora:` block, plus an `agora_tunnel` field on any provider, endpoint, or HTTP key source you want to dial over the overlay.
 
 ```yaml
 agora:
@@ -47,7 +47,7 @@ agora:
     capabilities: []            # derived from config when empty
 ```
 
-`agora.enabled: true` is required whenever any `agora_tunnel` is set on a provider/endpoint or `agora.serve.enabled: true` is set; the gateway fails fast at startup otherwise (`agora_tunnel set on a provider/endpoint requires agora.enabled: true`, or `agora.serve.enabled requires agora.enabled: true`).
+`agora.enabled: true` is required whenever any `agora_tunnel` is set on a provider, endpoint, or HTTP key source, or `agora.serve.enabled: true` is set; the gateway fails fast at startup otherwise (`agora_tunnel set on a provider, endpoint, or key source requires agora.enabled: true`, or `agora.serve.enabled requires agora.enabled: true`).
 
 ## Integration File
 
@@ -109,7 +109,7 @@ The gateway serves HTTP over the direct tcp-mode tunnel and advertises `tunnel_m
 
 ## Dialing Providers via Agora
 
-Any provider or endpoint can be reached over an Agora tunnel by setting `agora_tunnel` on its config. At startup the gateway **attaches** each unique tunnel once -- a control-plane reservation kept out of the request hot path -- and hands each provider a shared HTTP client whose `DialContext` returns a raw `net.Conn` from the SDK's `Dial` primitive. The attachment is released once, at process shutdown.
+Any provider, endpoint, or HTTP key source can be reached over an Agora tunnel by setting `agora_tunnel` on its config. At startup the gateway **attaches** each unique tunnel once -- a control-plane reservation kept out of the request hot path -- and hands each provider a shared HTTP client whose `DialContext` returns a raw `net.Conn` from the SDK's `Dial` primitive. The attachment is released once, at process shutdown.
 
 ```yaml
 providers:
@@ -119,7 +119,19 @@ providers:
   open_ai:
     api_key: "${OPENAI_API_KEY}"
     agora_tunnel: "openai-egress"
+
+api_keys:
+  enabled: true
+  sources:
+    - type: http
+      name: control-plane
+      base_url: "https://keys.internal"
+      agora_tunnel: "keys"
+      poll_interval: 30s
+      timeout: 5s
 ```
+
+A key API reached this way is never publicly exposed: network reachability over the overlay is itself the authentication, and the source's `token` becomes a second factor rather than the only one. See [Key Sources](key-sources.md).
 
 The far end of a dial tunnel is **not** part of the gateway -- Agora ships it. Run `agora tunnel serve <name> --mode http --backend <addr>` next to the backend; it provisions a tunnel and forwards it to a local `--backend`. The gateway dials the tunnel; the tool answers it.
 
@@ -130,7 +142,7 @@ The far end of a dial tunnel is **not** part of the gateway -- Agora ships it. R
 
 ### Transport precedence: agora wins
 
-When a provider or endpoint sets **both** `agora_tunnel` and `zrok_share_token`, the gateway dials it over **Agora**. This is a documented rule, not a silent pick. (Serving over zrok and over Agora are independent listeners and may both run.)
+When a provider, endpoint, or key source sets **both** `agora_tunnel` and `zrok_share_token`, the gateway dials it over **Agora**. This is a documented rule, not a silent pick. (Serving over zrok and over Agora are independent listeners and may both run.)
 
 ### Multi-endpoint
 

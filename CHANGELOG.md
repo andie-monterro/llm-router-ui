@@ -12,6 +12,8 @@ FIX: Errors from an OpenAI-compatible local backend keep their own type and stat
 
 FIX: A provider `base_url` that is not an absolute HTTP(S) URL is now a directed startup error naming the field, rather than a gateway that starts healthy and fails every affected request. This covers the OpenAI, Anthropic, and local blocks and each multi-endpoint entry; an omitted `base_url` still means "use the default" and is unaffected.
 
+FEATURE: New `dummy-keys` binary serves the published `GET /v1/keys` contract from a local file, so an HTTP key source can be exercised without standing up a management plane. The file is re-read per request and carries an `ETag`, so editing it and watching the gateway converge is the demo, and `--fault` injects the failure modes the design is built around -- an error status, a `count` that disagrees with `keys`, pagination headers, an unsolicited `304`, a stalled response, a malformed envelope, an unknown record field -- none of which are observable against a server that always behaves. See [docs/current/dummy-keys.md](docs/current/dummy-keys.md).
+
 FIX: Startup errors about the OpenAI provider now name `providers.open_ai.*`, the configuration key the gateway actually reads. They previously named `providers.openai.*`, which does not exist -- an operator following the message would search their config for a key that is not there and change nothing.
 
 ## v0.1.6

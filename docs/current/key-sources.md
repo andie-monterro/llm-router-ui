@@ -135,6 +135,8 @@ Polling always runs. With `watch: true`, filesystem notifications provide lower 
 
 ## HTTP Encoding
 
+A runnable reference implementation of everything in this section ships as [`dummy-keys`](dummy-keys.md), which serves this contract from a local file and can inject each of the failure modes the gateway is built to survive.
+
 The v1 API is:
 
 ```http
