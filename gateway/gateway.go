@@ -331,7 +331,7 @@ func (g *Gateway) initLocalMulti() error {
 
 // Run serves the gateway handler over every enabled transport at once — the
 // plain local listener, a zrok share, and an agora tunnel are independent
-// listeners and may run together. The local listener is opt-in (an explicit
+// listeners and may run together. the local listener is opt-in (an explicit
 // cfg.Listen) or the fallback when no overlay serves, so a credential-firewall
 // deployment can stay private-only (agora serve, no local port).
 func (g *Gateway) Run() error {

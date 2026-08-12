@@ -443,7 +443,7 @@ func (a *Anthropic) translateRequest(req *ChatCompletionRequest) *anthropicReque
 }
 
 // convertAssistantMessage converts an OpenAI assistant message into an anthropic
-// message. When the assistant made tool calls, its content becomes an array of
+// message. when the assistant made tool calls, its content becomes an array of
 // blocks: an optional leading text block followed by one tool_use block per call.
 func (a *Anthropic) convertAssistantMessage(msg Message) anthropicMessage {
 	if len(msg.ToolCalls) == 0 {

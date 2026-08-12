@@ -49,7 +49,7 @@ type Subsystem struct {
 }
 
 // agoraOps is the SDK seam that keeps the subsystem unit-testable without a
-// live controller. It wraps the thin Listen/Dial primitives plus catalog. The
+// live controller. it wraps the thin Listen/Dial primitives plus catalog. The
 // gateway is bind-only, so there is no Create/Delete: the serve tunnel is
 // operator-provisioned and never created or deleted here.
 type agoraOps interface {
@@ -142,7 +142,7 @@ func newSubsystemWithOps(opts SubsystemOptions, ops agoraOps) (*Subsystem, error
 	// publishing requires workgroup scope IDs (controller-enforced). When
 	// publishing is on by *default* and no workgroup IDs are configured,
 	// downgrade to serve-only with a notice — an enrolled account without an
-	// integration file can still serve. An *explicit* advertisement.publish:
+	// integration file can still serve. an *explicit* advertisement.publish:
 	// true with missing workgroup IDs remains a hard error in validateConfig.
 	if publishWanted && !PublishExplicit(cfg) && !hasWorkgroupIDs(cfg) {
 		publishWanted = false
@@ -217,7 +217,7 @@ func validateConfig(cfg *Config, publishWanted bool, capabilities []string) erro
 }
 
 // validateAgentEndpoint cross-checks the optional agora.api_endpoint config
-// value against the enrolled environment. The enrolled environment is the
+// value against the enrolled environment. the enrolled environment is the
 // source of truth; when the config value is unset, no cross-check applies.
 func validateAgentEndpoint(cfg *Config, ops agoraOps, handle any) error {
 	rootEndpoint, source := ops.RootAPIEndpoint(handle)
@@ -238,7 +238,7 @@ func sameEndpoint(a, b string) bool {
 }
 
 // ServeTunnelName returns the resolved bind serve tunnel name — the client's
-// dial key. It is the single source of truth shared by Serve and the catalog
+// dial key. it is the single source of truth shared by Serve and the catalog
 // advertisement Name, resolved whether or not serving is enabled here.
 func (s *Subsystem) ServeTunnelName() string {
 	if s == nil {

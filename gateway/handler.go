@@ -196,10 +196,10 @@ func (g *Gateway) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 }
 
 // logAndAuthorizeDecision is the single owner of key->route authorization for
-// both the capability and semantic-routing paths. It logs the decision line and
+// both the capability and semantic-routing paths. it logs the decision line and
 // the routing meter, then — for a decision that actually selected a route
 // (Route != "", which excludes explicit-model passthrough) — denies with a 403
-// when the key may not use that route, returning true. On success it binds the
+// when the key may not use that route, returning true. on success it binds the
 // resolved model onto req and returns false.
 func (g *Gateway) logAndAuthorizeDecision(ctx context.Context, w http.ResponseWriter, keyEntry *keys.Record, decision *routing.Decision, req *providers.ChatCompletionRequest) (denied bool) {
 	keyName := ""

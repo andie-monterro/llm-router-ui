@@ -35,7 +35,7 @@ func (t *systemDeadlineTimer) stop() {
 }
 
 // armDeadlineLocked publishes the earliest deadline of any in-service,
-// reloadable contribution. The evaluator owns the timer itself so transitions
+// reloadable contribution. the evaluator owns the timer itself so transitions
 // never reset a timer concurrently with its receiver.
 func (s *Store) armDeadlineLocked() {
 	if s.maxStaleness <= 0 || s.booting {
