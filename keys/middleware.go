@@ -13,10 +13,10 @@ type contextKey int
 const apiKeyContextKey contextKey = iota
 
 // Middleware returns a handler that enforces bearer-token authentication.
-// health and metrics remain unauthenticated as before.
+// health, metrics, and the bundled web UI remain unauthenticated.
 func (s *Store) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/health" || r.URL.Path == "/metrics" {
+		if r.URL.Path == "/" || r.URL.Path == "/health" || r.URL.Path == "/metrics" || r.URL.Path == "/favicon.svg" || strings.HasPrefix(r.URL.Path, "/assets/") {
 			next.ServeHTTP(w, r)
 			return
 		}

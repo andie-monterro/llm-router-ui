@@ -1,4 +1,4 @@
-.PHONY: clean build test
+.PHONY: clean build ui test
 
 GOBIN ?= $(shell go env GOPATH)/bin
 
@@ -8,6 +8,9 @@ clean:
 
 build:
 	go install ./...
+
+ui:
+	cd frontend && npm ci && npm run build
 
 test:
 	go test ./... -count=1

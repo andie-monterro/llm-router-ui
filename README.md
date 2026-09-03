@@ -18,6 +18,7 @@ Most LLM proxies solve API translation. This one also solves the network problem
 - **Semantic routing**: Optional three-layer cascade (heuristics, embeddings, LLM classifier) to automatically select the best model when `model` is omitted
 - **Anthropic translation**: Transparently converts OpenAI format to/from Anthropic's Messages API
 - **Streaming support**: Server-Sent Events (SSE) streaming for all providers
+- **Bundled web UI**: Chat history, Markdown/code rendering, model settings, themes, and streaming in the same binary
 - **Multi-endpoint load balancing**: Round-robin load distribution and automatic failover across multiple inference backends
 - **OpenTelemetry metrics**: Prometheus-exported metrics for requests, latency, tokens, and endpoint health
 - **zrok integration**: Expose the gateway via zrok private or public shares
@@ -78,6 +79,13 @@ curl http://localhost:8080/v1/chat/completions \
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
+
+Or open `http://localhost:8080/` for the bundled chat UI. It defaults to the
+virtual `auto` model when semantic routing is enabled.
+
+The UI source lives in `frontend/` and is based on MIT-licensed
+[ChatOpenApi](https://github.com/hrmncode/ChatOpenApi). Rebuild embedded assets
+after frontend changes with `make ui`.
 
 ## Provider Routing
 

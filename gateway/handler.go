@@ -2,9 +2,10 @@ package gateway
 
 import (
 	"context"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"strings"
 	"time"
@@ -17,12 +18,16 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-//go:embed index.html
-var indexHTML []byte
+//go:embed web
+var uiFiles embed.FS
+
+var uiRoot, _ = fs.Sub(uiFiles, "web")
 
 func (g *Gateway) newHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", g.handleUI)
+	mux.Handle("GET /assets/", http.FileServerFS(uiRoot))
+	mux.Handle("GET /favicon.svg", http.FileServerFS(uiRoot))
 	mux.HandleFunc("GET /v1", g.handleAPIInfo)
 	mux.HandleFunc("GET /v1/models", g.handleModels)
 	mux.HandleFunc("POST /v1/chat/completions", g.handleChatCompletions)
@@ -45,9 +50,9 @@ func (g *Gateway) newHandler() http.Handler {
 	return mux
 }
 
-func (g *Gateway) handleUI(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(indexHTML)
+func (g *Gateway) handleUI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	http.ServeFileFS(w, r, uiRoot, "index.html")
 }
 
 func (g *Gateway) handleAPIInfo(w http.ResponseWriter, _ *http.Request) {
