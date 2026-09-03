@@ -18,6 +18,7 @@ import (
 
 func (g *Gateway) newHandler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1", g.handleAPIInfo)
 	mux.HandleFunc("GET /v1/models", g.handleModels)
 	mux.HandleFunc("POST /v1/chat/completions", g.handleChatCompletions)
 	mux.HandleFunc("GET /health", g.handleHealth)
@@ -29,7 +30,7 @@ func (g *Gateway) newHandler() http.Handler {
 	// the mux's built-in 404/405 responses are plain text; every client-visible
 	// error stays OpenAI-shaped instead.
 	mux.HandleFunc("/", providers.HandleNotFound)
-	for _, path := range []string{"/v1/models", "/v1/chat/completions", "/health"} {
+	for _, path := range []string{"/v1", "/v1/models", "/v1/chat/completions", "/health"} {
 		mux.HandleFunc(path, providers.HandleMethodNotAllowed)
 	}
 
@@ -37,6 +38,17 @@ func (g *Gateway) newHandler() http.Handler {
 		return g.keyStore.Middleware(mux)
 	}
 	return mux
+}
+
+func (g *Gateway) handleAPIInfo(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"status": "ok",
+		"endpoints": map[string]string{
+			"models":           "GET /v1/models",
+			"chat_completions": "POST /v1/chat/completions",
+		},
+	})
 }
 
 func (g *Gateway) handleModels(w http.ResponseWriter, r *http.Request) {

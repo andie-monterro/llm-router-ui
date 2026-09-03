@@ -79,6 +79,14 @@ func TestHandlerFallbackErrorsAreOpenAIShaped(t *testing.T) {
 	}
 }
 
+func TestAPIInfo(t *testing.T) {
+	rr := httptest.NewRecorder()
+	(&Gateway{}).newHandler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1", nil))
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"chat_completions":"POST /v1/chat/completions"`) {
+		t.Fatalf("GET /v1 returned %d with body %s", rr.Code, rr.Body.String())
+	}
+}
+
 // stubChatProvider returns a canned non-streaming response.
 type stubChatProvider struct {
 	resp *providers.ChatCompletionResponse
