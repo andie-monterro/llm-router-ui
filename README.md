@@ -248,6 +248,8 @@ routing:
     enabled: true
     provider: local
     model: llama3
+    # Optional instruction; route descriptions and required JSON output are appended automatically.
+    prompt: "Choose the cheapest route that can reliably complete the request. Do not answer it."
     timeout_ms: 5000
     confidence_threshold: 0.7
 
@@ -287,6 +289,18 @@ routing:
         - "what is the capital of France"
         - "explain quantum computing"
 ```
+
+The classifier model and instruction are both settings. Change `classifier.model` to use another model and `classifier.prompt` to tune the routing policy without editing code.
+
+### Reuse OMP models and credentials
+
+`etc/config.omp.yaml` points the gateway at OMP's local auth gateway. It reuses the credentials already stored by OMP; no provider key is copied into this repository.
+
+```bash
+./scripts/run-with-omp
+```
+
+Then point an OpenAI-compatible client at `http://127.0.0.1:18080/v1` and select `auto`. Edit `classifier.model`, `classifier.prompt`, or the route models in `etc/config.omp.yaml` to test other models exposed by `omp models`.
 
 ### Heuristic Match Conditions
 

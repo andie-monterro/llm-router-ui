@@ -1,0 +1,59 @@
+listen: "127.0.0.1:18080"
+
+# OMP auth-gateway exposes the models and credentials already configured in OMP.
+providers:
+  local:
+    base_url: "${OMP_AUTH_GATEWAY_URL}"
+
+routing:
+  allow_explicit_model: true
+  default_route: fast
+
+  # Keep only the obvious deterministic cases here. Everything else goes to the classifier.
+  heuristics:
+    enabled: true
+    rules:
+      - match:
+          has_tools: true
+        route: coding
+      - match:
+          max_tokens_lt: 100
+          message_length_lt: 200
+        route: fast
+
+  # Change these two settings to try another routing model or policy.
+  classifier:
+    enabled: true
+    provider: local
+    model: "openrouter/~anthropic/claude-haiku-latest"
+    prompt: >-
+      Choose the cheapest route that can reliably complete the user's request.
+      Classify intent and difficulty, reserve expensive routes for requests that
+      clearly need them, and do not answer the request.
+    timeout_ms: 15000
+    confidence_threshold: 0.65
+    cache_results: true
+
+  routes:
+    - name: fast
+      model: "deepseek/deepseek-v4-flash"
+      description: "simple questions, summaries, translations, extraction, and casual conversation"
+
+    - name: coding
+      model: "openrouter/~openai/gpt-mini-latest"
+      description: "software implementation, debugging, code review, tool use, and technical engineering"
+
+    - name: reasoning
+      model: "openrouter/~openai/gpt-latest"
+      description: "difficult multi-step reasoning, architecture, mathematics, and high-stakes analysis"
+
+    - name: creative
+      model: "openrouter/~anthropic/claude-sonnet-latest"
+      description: "creative writing, nuanced rewriting, storytelling, and tone-sensitive communication"
+
+    - name: general
+      model: "openrouter/~google/gemini-flash-latest"
+      description: "general knowledge and mixed requests that do not clearly fit another route"
+
+metrics:
+  enabled: true

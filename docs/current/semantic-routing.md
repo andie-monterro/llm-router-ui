@@ -313,6 +313,7 @@ classifier:
   enabled: true
   provider: local            # local or openai
   model: qwen3-vl:30b       # any model that supports /v1/chat/completions
+  prompt: "Classify the request" # optional; categories and JSON schema are appended
   timeout_ms: 10000          # request timeout in milliseconds (0 = no timeout)
   confidence_threshold: 0.7  # minimum confidence to accept the classification
   cache_results: true        # cache classification results
@@ -382,6 +383,7 @@ routing:
     enabled: true
     provider: local              # local or openai
     model: qwen3-vl:30b         # classifier model
+    prompt: "Classify the request" # optional classifier policy/instruction
     timeout_ms: 10000            # request timeout (default: 0 / no timeout)
     confidence_threshold: 0.7    # minimum confidence (default: 0)
     cache_results: true           # enable result cache (default: false)

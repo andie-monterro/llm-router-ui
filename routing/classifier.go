@@ -174,7 +174,12 @@ func (cm *ClassifierMatcher) Classify(ctx context.Context, info *RequestInfo) (s
 
 func (cm *ClassifierMatcher) buildPrompt(info *RequestInfo) string {
 	var b strings.Builder
-	b.WriteString("Classify the following user request into one of these categories.\n\n")
+	instruction := strings.TrimSpace(cm.cfg.Prompt)
+	if instruction == "" {
+		instruction = "Classify the following user request into one of these categories."
+	}
+	b.WriteString(instruction)
+	b.WriteString("\n\n")
 	b.WriteString("Categories:\n")
 	for _, r := range cm.routes {
 		b.WriteString(fmt.Sprintf("- %s: %s\n", r.Name, r.Description))
@@ -202,4 +207,3 @@ func extractJSON(s string) string {
 	}
 	return s
 }
-

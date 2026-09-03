@@ -60,6 +60,7 @@ type ClassifierConfig struct {
 	Enabled             bool
 	Provider            string // local or openai
 	Model               string
+	Prompt              string // optional instruction prepended to the generated categories
 	TimeoutMs           int
 	ConfidenceThreshold float64
 	CacheResults        bool

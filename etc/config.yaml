@@ -100,6 +100,7 @@ providers:
 #     enabled: true
 #     provider: local              # local or openai (must support /v1/chat/completions)
 #     model: llama3                 # model for classification
+#     prompt: "Classify the request" # optional; categories and JSON schema are appended
 #     timeout_ms: 5000              # timeout for classifier requests
 #     confidence_threshold: 0.7     # minimum confidence to accept classification
 #

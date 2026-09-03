@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/openziti/llm-gateway/providers"
@@ -55,13 +56,30 @@ func TestClassifierMatcherSuccess(t *testing.T) {
 	}
 }
 
+func TestClassifierMatcherCustomPrompt(t *testing.T) {
+	cfg := &ClassifierConfig{Prompt: "Choose the cheapest capable route."}
+	cm := NewClassifierMatcher(cfg, []RouteConfig{{
+		Name: "fast", Description: "simple requests",
+	}}, "", "")
+
+	prompt := cm.buildPrompt(&RequestInfo{
+		Messages: []MessageInfo{{Role: "user", Content: "hello"}},
+	})
+	if !strings.HasPrefix(prompt, cfg.Prompt+"\n\nCategories:") {
+		t.Fatalf("custom prompt not used: %q", prompt)
+	}
+	if !strings.Contains(prompt, "- fast: simple requests") || !strings.Contains(prompt, "User request:\nhello") {
+		t.Fatalf("generated classification context missing: %q", prompt)
+	}
+}
+
 func TestClassifierMatcherMarkdownWrapped(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := providers.ChatCompletionResponse{
 			Choices: []providers.Choice{
 				{
 					Message: &providers.Message{
-						Role: "assistant",
+						Role:    "assistant",
 						Content: "```json\n{\"category\": \"creative\", \"confidence\": 0.8}\n```",
 					},
 				},

@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+broker_bind="${ROUTELLM_BROKER_BIND:-127.0.0.1:19100}"
+auth_bind="${ROUTELLM_AUTH_BIND:-127.0.0.1:19101}"
+broker_url="http://${broker_bind}"
+export OMP_AUTH_GATEWAY_URL="http://${auth_bind}"
+pids=()
+
+cleanup() {
+  for pid in "${pids[@]}"; do
+    kill "$pid" 2>/dev/null || true
+  done
+  wait "${pids[@]}" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+omp auth-broker serve --bind="$broker_bind" &
+pids+=("$!")
+broker_token="$(omp auth-broker token)"
+
+broker_ready=false
+for _ in {1..50}; do
+  if curl -s -o /dev/null -H "Authorization: Bearer $broker_token" "$broker_url/"; then
+    broker_ready=true
+    break
+  fi
+  sleep 0.1
+done
+if [[ "$broker_ready" != true ]]; then
+  echo "OMP auth broker did not start at $broker_url" >&2
+  exit 1
+fi
+
+OMP_AUTH_BROKER_URL="$broker_url" OMP_AUTH_BROKER_TOKEN="$broker_token" \
+  omp auth-gateway serve --no-auth --bind="$auth_bind" &
+pids+=("$!")
+
+auth_ready=false
+for _ in {1..50}; do
+  if curl -fs -o /dev/null "$OMP_AUTH_GATEWAY_URL/v1/models"; then
+    auth_ready=true
+    break
+  fi
+  sleep 0.1
+done
+if [[ "$auth_ready" != true ]]; then
+  echo "OMP auth gateway did not start at $OMP_AUTH_GATEWAY_URL" >&2
+  exit 1
+fi
+
+cd "$repo_dir"
+go run ./cmd/llm-gateway run etc/config.omp.yaml &
+gateway_pid="$!"
+pids+=("$gateway_pid")
+wait "$gateway_pid"
