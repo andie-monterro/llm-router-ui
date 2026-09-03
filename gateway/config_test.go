@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/openziti/llm-gateway/keys"
+	"github.com/openziti/llm-gateway/routing"
 )
 
 func writeTestConfig(t *testing.T, content string) string {
@@ -323,6 +324,19 @@ func TestExpandEnvSecrets(t *testing.T) {
 	}
 	if cfg.Providers.Local.Endpoints[0].BaseURL != "http://ollama.internal:11434" {
 		t.Errorf("endpoint base_url = %q, want resolved value", cfg.Providers.Local.Endpoints[0].BaseURL)
+	}
+
+	// OMP and other launchers can bind routing models from their own config.
+	t.Setenv("LLMGW_TEST_MODEL", "openai-codex/gpt-5.6-luna")
+	cfg = &Config{Routing: &routing.RoutingConfig{
+		Classifier: &routing.ClassifierConfig{Model: "${LLMGW_TEST_MODEL}"},
+		Routes:     []routing.RouteConfig{{Name: "fast", Model: "${LLMGW_TEST_MODEL}"}},
+	}}
+	if err := cfg.expandEnv(); err != nil {
+		t.Fatalf("expandEnv() = %v, want nil", err)
+	}
+	if cfg.Routing.Classifier.Model != "openai-codex/gpt-5.6-luna" || cfg.Routing.Routes[0].Model != "openai-codex/gpt-5.6-luna" {
+		t.Fatalf("routing models were not expanded: %+v", cfg.Routing)
 	}
 }
 

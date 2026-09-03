@@ -8,6 +8,25 @@ broker_url="http://${broker_bind}"
 export OMP_AUTH_GATEWAY_URL="http://${auth_bind}"
 pids=()
 
+roles_json="$(omp config get modelRoles --json)"
+models_json="$(omp models --json)"
+resolve_role() {
+  local role_value
+  role_value="$(jq -r --arg role "$1" '.value[$role] // empty' <<<"$roles_json")"
+  jq -r --arg value "$role_value" \
+    '([.models[] | select(.selector == $value)][0] // [.models[] | select(.id == $value)][0]).selector // empty' \
+    <<<"$models_json"
+}
+
+: "${OMP_ROUTER_CLASSIFIER_MODEL:=$(resolve_role smol)}"
+: "${OMP_ROUTER_FAST_MODEL:=$(resolve_role default)}"
+: "${OMP_ROUTER_CODING_MODEL:=$(resolve_role main)}"
+: "${OMP_ROUTER_REASONING_MODEL:=$(resolve_role slow)}"
+: "${OMP_ROUTER_CREATIVE_MODEL:=$(resolve_role main)}"
+: "${OMP_ROUTER_GENERAL_MODEL:=$(resolve_role default)}"
+export OMP_ROUTER_CLASSIFIER_MODEL OMP_ROUTER_FAST_MODEL OMP_ROUTER_CODING_MODEL
+export OMP_ROUTER_REASONING_MODEL OMP_ROUTER_CREATIVE_MODEL OMP_ROUTER_GENERAL_MODEL
+
 cleanup() {
   for pid in "${pids[@]}"; do
     kill "$pid" 2>/dev/null || true

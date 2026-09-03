@@ -181,6 +181,19 @@ func (c *Config) expandEnv() error {
 			}
 		}
 	}
+	if c.Routing != nil {
+		if classifier := c.Routing.Classifier; classifier != nil {
+			if err := expand("routing.classifier.model", &classifier.Model); err != nil {
+				return err
+			}
+		}
+		for i := range c.Routing.Routes {
+			field := fmt.Sprintf("routing.routes[%d].model", i)
+			if err := expand(field, &c.Routing.Routes[i].Model); err != nil {
+				return err
+			}
+		}
+	}
 
 	return nil
 }

@@ -294,13 +294,13 @@ The classifier model and instruction are both settings. Change `classifier.model
 
 ### Reuse OMP models and credentials
 
-`etc/config.omp.yaml` points the gateway at OMP's local auth gateway. It reuses the credentials already stored by OMP; no provider key is copied into this repository.
+`etc/config.omp.yaml` points the gateway at OMP's local auth gateway. The launcher reads OMP's existing `modelRoles` and credential vault, so no model list or provider key is duplicated in this repository. Routes use the roles as follows: `default` for fast/general, `main` for coding/creative, `slow` for reasoning, and `smol` for classification.
 
 ```bash
 ./scripts/run-with-omp
 ```
 
-Then point an OpenAI-compatible client at `http://127.0.0.1:18080/v1` and select `auto`. Edit `classifier.model`, `classifier.prompt`, or the route models in `etc/config.omp.yaml` to test other models exposed by `omp models`.
+Then point an OpenAI-compatible client at `http://127.0.0.1:18080/v1` and select `auto`. Change models with OMP's normal model-role settings. `classifier.prompt` in `etc/config.omp.yaml` remains gateway-specific because OMP has no routing-policy setting.
 
 ### Heuristic Match Conditions
 
