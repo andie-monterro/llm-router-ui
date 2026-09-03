@@ -1,5 +1,5 @@
 {
-  "name": "llm-gateway-ui",
+  "name": "llm-router-ui",
   "private": true,
   "version": "0.1.0",
   "type": "module",
