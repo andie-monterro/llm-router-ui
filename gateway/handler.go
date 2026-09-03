@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,8 +17,12 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
+//go:embed index.html
+var indexHTML []byte
+
 func (g *Gateway) newHandler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", g.handleUI)
 	mux.HandleFunc("GET /v1", g.handleAPIInfo)
 	mux.HandleFunc("GET /v1/models", g.handleModels)
 	mux.HandleFunc("POST /v1/chat/completions", g.handleChatCompletions)
@@ -38,6 +43,11 @@ func (g *Gateway) newHandler() http.Handler {
 		return g.keyStore.Middleware(mux)
 	}
 	return mux
+}
+
+func (g *Gateway) handleUI(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(indexHTML)
 }
 
 func (g *Gateway) handleAPIInfo(w http.ResponseWriter, _ *http.Request) {

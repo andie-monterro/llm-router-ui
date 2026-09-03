@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="vi">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LLM Gateway</title>
+<style>
+  * { box-sizing: border-box }
+  body { margin: 0; background: #0d1117; color: #e6edf3; font: 16px system-ui; }
+  main { max-width: 820px; margin: auto; min-height: 100vh; padding: 32px 20px; display: flex; flex-direction: column; gap: 18px; }
+  h1 { margin: 0; font-size: 24px }
+  #status { color: #8b949e; font-size: 14px }
+  #chat { flex: 1; display: flex; flex-direction: column; gap: 12px }
+  .msg { white-space: pre-wrap; padding: 14px 16px; border: 1px solid #30363d; border-radius: 12px; line-height: 1.5 }
+  .user { margin-left: 15%; background: #1f6feb }
+  .assistant { margin-right: 15%; background: #161b22 }
+  form { display: flex; gap: 10px; position: sticky; bottom: 20px }
+  textarea { flex: 1; resize: vertical; min-height: 56px; max-height: 180px; padding: 14px; color: inherit; background: #161b22; border: 1px solid #30363d; border-radius: 12px; font: inherit }
+  button { padding: 0 20px; border: 0; border-radius: 12px; background: #238636; color: white; font-weight: 700; cursor: pointer }
+  button:disabled { opacity: .55; cursor: wait }
+</style>
+<main>
+  <header><h1>LLM Gateway</h1><div id="status">model: auto — gateway tự chọn</div></header>
+  <section id="chat" aria-live="polite"></section>
+  <form id="form">
+    <textarea id="prompt" aria-label="Tin nhắn" placeholder="Nhập prompt để test…" required autofocus></textarea>
+    <button>Gửi</button>
+  </form>
+</main>
+<script>
+const form = document.querySelector('#form'), prompt = document.querySelector('#prompt')
+const chat = document.querySelector('#chat'), status = document.querySelector('#status'), button = form.querySelector('button')
+const messages = []
+const add = (role, content) => { const el = document.createElement('div'); el.className = `msg ${role}`; el.textContent = content; chat.append(el); el.scrollIntoView(); return el }
+form.addEventListener('submit', async event => {
+  event.preventDefault()
+  const content = prompt.value.trim(); if (!content) return
+  messages.push({role: 'user', content}); add('user', content); prompt.value = ''; button.disabled = true
+  const reply = add('assistant', 'Đang route và gọi model…')
+  try {
+    const response = await fetch('/v1/chat/completions', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({model: 'auto', messages})})
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error?.message || `HTTP ${response.status}`)
+    const answer = data.choices?.[0]?.message?.content || '(Model không trả nội dung)'
+    reply.textContent = answer; messages.push({role: 'assistant', content: answer}); status.textContent = `routed → ${data.model || 'unknown'}`
+  } catch (error) { reply.textContent = `Lỗi: ${error.message}` }
+  finally { button.disabled = false; prompt.focus() }
+})
+prompt.addEventListener('keydown', event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) form.requestSubmit() })
+</script>
+</html>
