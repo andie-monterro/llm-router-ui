@@ -194,6 +194,11 @@ func (g *Gateway) initProviders() error {
 		}
 	}
 
+	if p := g.cfg.Providers.OpenRouter; p != nil && p.APIKey != "" {
+		g.providers[providers.ProviderOpenRouter] = providers.NewOpenRouter(p.APIKey, p.BaseURL)
+		dl.Info("initialized openrouter provider")
+	}
+
 	// initialize anthropic provider
 	if g.cfg.Providers.Anthropic != nil && g.cfg.Providers.Anthropic.APIKey != "" {
 		apiKey := g.cfg.Providers.Anthropic.APIKey

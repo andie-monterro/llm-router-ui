@@ -27,6 +27,9 @@ resolve_role() {
 export OMP_ROUTER_CLASSIFIER_MODEL OMP_ROUTER_FAST_MODEL OMP_ROUTER_CODING_MODEL
 export OMP_ROUTER_REASONING_MODEL OMP_ROUTER_CREATIVE_MODEL OMP_ROUTER_GENERAL_MODEL
 
+# Reuse the vault credential for OpenRouter-only server tools.
+export OPENROUTER_API_KEY="$(omp token openrouter)"
+
 cleanup() {
   for pid in "${pids[@]}"; do
     kill "$pid" 2>/dev/null || true

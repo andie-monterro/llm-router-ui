@@ -39,9 +39,15 @@ type ZrokShareConfig struct {
 }
 
 type ProvidersConfig struct {
-	OpenAI    *OpenAIConfig
-	Anthropic *AnthropicConfig
-	Local     *LocalConfig
+	OpenAI     *OpenAIConfig
+	OpenRouter *OpenRouterConfig
+	Anthropic  *AnthropicConfig
+	Local      *LocalConfig
+}
+
+type OpenRouterConfig struct {
+	APIKey  string
+	BaseURL string
 }
 
 type OpenAIConfig struct {
@@ -161,6 +167,14 @@ func (c *Config) expandEnv() error {
 				return err
 			}
 		}
+		if p := c.Providers.OpenRouter; p != nil {
+			if err := expand("providers.open_router.api_key", &p.APIKey); err != nil {
+				return err
+			}
+			if err := expand("providers.open_router.base_url", &p.BaseURL); err != nil {
+				return err
+			}
+		}
 		if p := c.Providers.Anthropic; p != nil {
 			if err := expand("providers.anthropic.api_key", &p.APIKey); err != nil {
 				return err
@@ -264,6 +278,11 @@ func (c *Config) validateProviders() error {
 	// healthy while every affected call fails.
 	if p := c.Providers.OpenAI; p != nil {
 		if err := validateBaseURL("providers.open_ai.base_url", p.BaseURL); err != nil {
+			return err
+		}
+	}
+	if p := c.Providers.OpenRouter; p != nil {
+		if err := validateBaseURL("providers.open_router.base_url", p.BaseURL); err != nil {
 			return err
 		}
 	}

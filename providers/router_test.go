@@ -24,13 +24,15 @@ func (m *mockProvider) ListModels(ctx context.Context) ([]Model, error) {
 
 func TestRouterRoute(t *testing.T) {
 	openai := &mockProvider{name: "openai"}
+	openrouter := &mockProvider{name: "openrouter"}
 	anthropic := &mockProvider{name: "anthropic"}
 	local := &mockProvider{name: "local"}
 
 	router := NewRouter(map[ProviderType]Provider{
-		ProviderOpenAI:    openai,
-		ProviderAnthropic: anthropic,
-		ProviderLocal:     local,
+		ProviderOpenAI:     openai,
+		ProviderOpenRouter: openrouter,
+		ProviderAnthropic:  anthropic,
+		ProviderLocal:      local,
 	})
 
 	tests := []struct {
@@ -45,6 +47,7 @@ func TestRouterRoute(t *testing.T) {
 		{"o1-preview", ProviderOpenAI},
 		{"o1-mini", ProviderOpenAI},
 		{"o3-mini", ProviderOpenAI},
+		{"openrouter/moonshotai/kimi-k3", ProviderOpenRouter},
 
 		// anthropic models
 		{"claude-3-opus-20240229", ProviderAnthropic},

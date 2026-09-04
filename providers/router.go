@@ -9,9 +9,10 @@ import (
 type ProviderType string
 
 const (
-	ProviderOpenAI    ProviderType = "openai"
-	ProviderAnthropic ProviderType = "anthropic"
-	ProviderLocal    ProviderType = "local"
+	ProviderOpenAI     ProviderType = "openai"
+	ProviderOpenRouter ProviderType = "openrouter"
+	ProviderAnthropic  ProviderType = "anthropic"
+	ProviderLocal      ProviderType = "local"
 )
 
 // Router routes models to their appropriate providers.
@@ -43,6 +44,9 @@ func (r *Router) Route(model string) (Provider, ProviderType, error) {
 // resolveProvider determines which provider should handle the given model.
 func (r *Router) resolveProvider(model string) ProviderType {
 	lower := strings.ToLower(model)
+	if strings.HasPrefix(lower, "openrouter/") {
+		return ProviderOpenRouter
+	}
 
 	// openai models
 	if strings.HasPrefix(lower, "gpt-") ||

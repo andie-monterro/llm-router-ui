@@ -2,6 +2,9 @@ listen: "127.0.0.1:18080"
 
 # OMP auth-gateway exposes the models and credentials already configured in OMP.
 providers:
+  open_router:
+    api_key: "${OPENROUTER_API_KEY}"
+    base_url: "https://openrouter.ai/api"
   local:
     base_url: "${OMP_AUTH_GATEWAY_URL}"
 
