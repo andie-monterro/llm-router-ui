@@ -187,6 +187,7 @@ async function runCompletion(set: Setter, get: Getter, chatId: string, model: st
         messages: history,
         temperature: settings.temperature,
         maxTokens: settings.maxTokens,
+        webSearch: settings.webSearch && model.startsWith('openrouter/') ? settings.webSearchEngine : undefined,
         signal: controller.signal,
         onToken: (token) => {
           accumulated += token;
@@ -204,6 +205,7 @@ async function runCompletion(set: Setter, get: Getter, chatId: string, model: st
         messages: history,
         temperature: settings.temperature,
         maxTokens: settings.maxTokens,
+        webSearch: settings.webSearch && model.startsWith('openrouter/') ? settings.webSearchEngine : undefined,
         signal: controller.signal,
       });
       accumulated = result.content;

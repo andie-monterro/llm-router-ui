@@ -4,6 +4,7 @@ import type {
   ModelInfo,
   Provider,
   StreamDelta,
+  WebSearchEngine,
 } from '../types';
 
 export class ApiError extends Error {
@@ -82,6 +83,23 @@ interface StreamOptions {
   signal?: AbortSignal;
   onToken: (token: string) => void;
   onModel?: (model: string) => void;
+  webSearch?: WebSearchEngine;
+}
+
+export function completionBody(options: Pick<StreamOptions, 'model' | 'messages' | 'temperature' | 'maxTokens' | 'webSearch'>, stream: boolean) {
+  return {
+    model: options.model,
+    messages: options.messages,
+    stream,
+    ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+    ...(options.maxTokens ? { max_tokens: options.maxTokens } : {}),
+    ...(options.webSearch ? {
+      tools: [{
+        type: 'openrouter:web_search',
+        parameters: { engine: options.webSearch, max_uses: 1, max_results: 3 },
+      }],
+    } : {}),
+  };
 }
 
 /**
@@ -100,18 +118,13 @@ export async function streamCompletion({
   signal,
   onToken,
   onModel,
+  webSearch,
 }: StreamOptions): Promise<string> {
   const res = await fetch(proxyUrl(provider.baseUrl, '/chat/completions'), {
     method: 'POST',
     headers: headers(provider),
     signal,
-    body: JSON.stringify({
-      model,
-      messages,
-      stream: true,
-      ...(temperature !== undefined ? { temperature } : {}),
-      ...(maxTokens ? { max_tokens: maxTokens } : {}),
-    }),
+    body: JSON.stringify(completionBody({ model, messages, temperature, maxTokens, webSearch }, true)),
   });
 
   if (!res.ok) throw new ApiError(await parseError(res), res.status);
@@ -172,18 +185,13 @@ export async function fetchCompletion({
   temperature,
   maxTokens,
   signal,
+  webSearch,
 }: Omit<StreamOptions, 'onToken' | 'onModel'>): Promise<{ content: string; model?: string }> {
   const res = await fetch(proxyUrl(provider.baseUrl, '/chat/completions'), {
     method: 'POST',
     headers: headers(provider),
     signal,
-    body: JSON.stringify({
-      model,
-      messages,
-      stream: false,
-      ...(temperature !== undefined ? { temperature } : {}),
-      ...(maxTokens ? { max_tokens: maxTokens } : {}),
-    }),
+    body: JSON.stringify(completionBody({ model, messages, temperature, maxTokens, webSearch }, false)),
   });
 
   if (!res.ok) throw new ApiError(await parseError(res), res.status);

@@ -27,6 +27,7 @@ export default function Composer() {
   const provider = settings.providers.find((p) => p.id === settings.activeProviderId) ?? null;
   const providerSource = provider ? `${provider.id}\0${provider.baseUrl}\0${provider.apiKey}` : '';
   const hasProvider = provider !== null;
+  const webSupported = provider?.model.startsWith('openrouter/') ?? false;
 
   // Grow with content up to a cap, then scroll internally.
   useEffect(() => {
@@ -117,24 +118,25 @@ export default function Composer() {
           />
 
           <div className="mt-1 flex items-end justify-between gap-2">
-            <div ref={pickerRef} className="relative min-w-0">
-              <button
-                type="button"
-                disabled={!provider || streaming}
-                onClick={() => setPickerOpen((open) => !open)}
-                aria-haspopup="listbox"
-                aria-expanded={pickerOpen}
-                className="flex max-w-[260px] items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium
-                           text-surface-600 transition-colors hover:bg-surface-100 disabled:opacity-40
-                           dark:text-surface-300 dark:hover:bg-surface-800"
-              >
-                <span className="truncate">{provider?.model ?? 'Choose model'}</span>
-                <span aria-hidden>⌄</span>
-              </button>
+            <div className="flex min-w-0 items-center gap-1">
+              <div ref={pickerRef} className="relative min-w-0">
+                <button
+                  type="button"
+                  disabled={!provider || streaming}
+                  onClick={() => setPickerOpen((open) => !open)}
+                  aria-haspopup="listbox"
+                  aria-expanded={pickerOpen}
+                  className="flex max-w-[260px] items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium
+                             text-surface-600 transition-colors hover:bg-surface-100 disabled:opacity-40
+                             dark:text-surface-300 dark:hover:bg-surface-800"
+                >
+                  <span className="truncate">{provider?.model ?? 'Choose model'}</span>
+                  <span aria-hidden>⌄</span>
+                </button>
 
-              {pickerOpen && provider && (
-                <div className="absolute bottom-full left-0 z-20 mb-2 w-[min(360px,calc(100vw-40px))] overflow-hidden
-                                rounded-2xl border border-surface-200 bg-white shadow-xl dark:border-surface-700 dark:bg-surface-800">
+                {pickerOpen && provider && (
+                  <div className="absolute bottom-full left-0 z-20 mb-2 w-[min(360px,calc(100vw-40px))] overflow-hidden
+                                  rounded-2xl border border-surface-200 bg-white shadow-xl dark:border-surface-700 dark:bg-surface-800">
                   <div className="border-b border-surface-100 p-2 dark:border-surface-700">
                     <input
                       autoFocus
@@ -164,7 +166,38 @@ export default function Composer() {
                     {!models.length && !modelError && <p className="px-3 py-5 text-center text-sm text-surface-400">Loading models…</p>}
                     {modelError && <p role="alert" className="px-3 py-3 text-sm text-red-500">{modelError}</p>}
                   </div>
-                </div>
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="button"
+                disabled={!webSupported || streaming}
+                onClick={() => void useSettings.getState().update({ webSearch: !settings.webSearch })}
+                aria-pressed={settings.webSearch && webSupported}
+                title={webSupported ? 'Toggle web search' : 'Choose an openrouter/ model to use web search'}
+                className={`rounded-full px-2.5 py-1.5 text-xs transition-colors disabled:opacity-30 ${
+                  settings.webSearch && webSupported
+                    ? 'bg-accent text-white'
+                    : 'text-surface-600 hover:bg-surface-100 dark:text-surface-300 dark:hover:bg-surface-800'
+                }`}
+              >
+                🌐 Web
+              </button>
+
+              {settings.webSearch && webSupported && (
+                <select
+                  aria-label="Web search engine"
+                  value={settings.webSearchEngine}
+                  disabled={streaming}
+                  onChange={(event) => void useSettings.getState().update({ webSearchEngine: event.target.value as typeof settings.webSearchEngine })}
+                  className="rounded-full border border-surface-200 bg-transparent px-2 py-1.5 text-xs outline-none dark:border-surface-700"
+                >
+                  <option value="auto">Auto</option>
+                  <option value="exa">Exa</option>
+                  <option value="parallel">Parallel</option>
+                  <option value="perplexity">Perplexity</option>
+                </select>
               )}
             </div>
 

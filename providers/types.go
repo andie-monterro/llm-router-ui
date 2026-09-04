@@ -1,20 +1,22 @@
 package providers
 
+import "encoding/json"
+
 // ChatCompletionRequest represents an OpenAI-compatible chat completion request.
 type ChatCompletionRequest struct {
-	Model            string         `json:"model"`
-	Messages         []Message      `json:"messages"`
-	MaxTokens        *int           `json:"max_tokens,omitempty"`
-	Temperature      *float64       `json:"temperature,omitempty"`
-	TopP             *float64       `json:"top_p,omitempty"`
-	N                *int           `json:"n,omitempty"`
-	Stream           bool           `json:"stream,omitempty"`
-	Stop             any            `json:"stop,omitempty"` // string or []string
-	PresencePenalty  *float64       `json:"presence_penalty,omitempty"`
-	FrequencyPenalty *float64       `json:"frequency_penalty,omitempty"`
-	User             string         `json:"user,omitempty"`
-	Tools            []Tool         `json:"tools,omitempty"`
-	ToolChoice       any            `json:"tool_choice,omitempty"` // string or object
+	Model            string          `json:"model"`
+	Messages         []Message       `json:"messages"`
+	MaxTokens        *int            `json:"max_tokens,omitempty"`
+	Temperature      *float64        `json:"temperature,omitempty"`
+	TopP             *float64        `json:"top_p,omitempty"`
+	N                *int            `json:"n,omitempty"`
+	Stream           bool            `json:"stream,omitempty"`
+	Stop             any             `json:"stop,omitempty"` // string or []string
+	PresencePenalty  *float64        `json:"presence_penalty,omitempty"`
+	FrequencyPenalty *float64        `json:"frequency_penalty,omitempty"`
+	User             string          `json:"user,omitempty"`
+	Tools            []Tool          `json:"tools,omitempty"`
+	ToolChoice       any             `json:"tool_choice,omitempty"` // string or object
 	ResponseFormat   *ResponseFormat `json:"response_format,omitempty"`
 }
 
@@ -42,8 +44,22 @@ type ImageURL struct {
 
 // Tool represents a tool available to the model.
 type Tool struct {
-	Type     string   `json:"type"`
-	Function Function `json:"function"`
+	Type       string   `json:"type"`
+	Function   Function `json:"function"`
+	Parameters any      `json:"parameters,omitempty"`
+}
+
+// MarshalJSON keeps ordinary function tools unchanged while allowing
+// provider-operated tools such as OpenRouter web search to omit "function".
+func (t Tool) MarshalJSON() ([]byte, error) {
+	if t.Type == "function" {
+		type alias Tool
+		return json.Marshal(alias(t))
+	}
+	return json.Marshal(struct {
+		Type       string `json:"type"`
+		Parameters any    `json:"parameters,omitempty"`
+	}{t.Type, t.Parameters})
 }
 
 // Function represents a function tool.

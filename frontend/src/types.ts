@@ -39,7 +39,11 @@ export interface Settings {
   theme: 'light' | 'dark' | 'system';
   streaming: boolean;
   sendOnEnter: boolean;
+  webSearch: boolean;
+  webSearchEngine: WebSearchEngine;
 }
+
+export type WebSearchEngine = 'auto' | 'exa' | 'parallel' | 'perplexity';
 
 export interface ModelInfo {
   id: string;
@@ -82,4 +86,6 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
   streaming: true,
   sendOnEnter: true,
+  webSearch: false,
+  webSearchEngine: 'auto',
 };
