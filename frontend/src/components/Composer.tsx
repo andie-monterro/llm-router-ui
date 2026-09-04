@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { fetchModels } from '../lib/api';
+import { filterModels } from '../lib/models';
 import { useChats } from '../store/useChats';
 import { useSettings } from '../store/useSettings';
 import { IconSend, IconStop } from './Icons';
@@ -7,14 +9,24 @@ const MAX_HEIGHT = 200;
 
 export default function Composer() {
   const [text, setText] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [models, setModels] = useState<string[]>([]);
+  const [modelSource, setModelSource] = useState('');
+  const [modelError, setModelError] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
 
   const send = useChats((s) => s.send);
   const stop = useChats((s) => s.stop);
   const streaming = useChats((s) => s.streaming);
   const activeChatId = useChats((s) => s.activeChatId);
-  const sendOnEnter = useSettings((s) => s.settings.sendOnEnter);
-  const hasProvider = useSettings((s) => s.settings.activeProviderId !== null);
+  const settings = useSettings((s) => s.settings);
+  const updateProvider = useSettings((s) => s.updateProvider);
+  const sendOnEnter = settings.sendOnEnter;
+  const provider = settings.providers.find((p) => p.id === settings.activeProviderId) ?? null;
+  const providerSource = provider ? `${provider.id}\0${provider.baseUrl}\0${provider.apiKey}` : '';
+  const hasProvider = provider !== null;
 
   // Grow with content up to a cap, then scroll internally.
   useEffect(() => {
@@ -29,6 +41,30 @@ export default function Composer() {
   useEffect(() => {
     if (window.matchMedia('(hover: hover)').matches) ref.current?.focus();
   }, [activeChatId]);
+
+  useEffect(() => {
+    if (!pickerOpen || !provider || modelSource === providerSource) return;
+    const controller = new AbortController();
+    setModelError('');
+    void fetchModels(provider, controller.signal)
+      .then((items) => {
+        setModels(items.map((item) => item.id));
+        setModelSource(providerSource);
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) setModelError(error instanceof Error ? error.message : 'Could not load models');
+      });
+    return () => controller.abort();
+  }, [pickerOpen, provider, providerSource, modelSource]);
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const close = (event: PointerEvent) => {
+      if (!pickerRef.current?.contains(event.target as Node)) setPickerOpen(false);
+    };
+    window.addEventListener('pointerdown', close);
+    return () => window.removeEventListener('pointerdown', close);
+  }, [pickerOpen]);
 
   const submit = () => {
     const value = text.trim();
@@ -49,12 +85,20 @@ export default function Composer() {
     }
   };
 
+  const chooseModel = async (model: string) => {
+    if (!provider) return;
+    await updateProvider(provider.id, { model });
+    setPickerOpen(false);
+    setQuery('');
+    ref.current?.focus();
+  };
+
   return (
     <div className="safe-bottom bg-gradient-to-t from-surface-0 via-surface-0 to-transparent
                     px-3 pb-3 pt-2 dark:from-surface-950 dark:via-surface-950 sm:px-4 sm:pb-4">
       <div className="mx-auto max-w-3xl">
         <div
-          className="flex items-end gap-2 rounded-[26px] border border-surface-200 bg-surface-0 p-2 pl-4
+          className="rounded-[26px] border border-surface-200 bg-surface-0 p-2 pl-4
                      shadow-sm transition-colors focus-within:border-surface-400
                      dark:border-surface-700 dark:bg-surface-900 dark:focus-within:border-surface-500"
         >
@@ -67,29 +111,82 @@ export default function Composer() {
             placeholder={hasProvider ? 'Send a message…' : 'Add a provider in Settings to start'}
             disabled={!hasProvider}
             aria-label="Message input"
-            className="scrollbar-thin max-h-[200px] flex-1 resize-none bg-transparent px-1 py-1.5
+            className="scrollbar-thin max-h-[200px] w-full resize-none bg-transparent px-1 py-1.5
                        text-[16px] leading-6 outline-none placeholder:text-surface-400
                        disabled:cursor-not-allowed dark:placeholder:text-surface-600"
           />
 
-          {streaming ? (
-            <button onClick={stop} className="shrink-0 rounded-full bg-surface-900 p-2 text-white
+          <div className="mt-1 flex items-end justify-between gap-2">
+            <div ref={pickerRef} className="relative min-w-0">
+              <button
+                type="button"
+                disabled={!provider || streaming}
+                onClick={() => setPickerOpen((open) => !open)}
+                aria-haspopup="listbox"
+                aria-expanded={pickerOpen}
+                className="flex max-w-[260px] items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium
+                           text-surface-600 transition-colors hover:bg-surface-100 disabled:opacity-40
+                           dark:text-surface-300 dark:hover:bg-surface-800"
+              >
+                <span className="truncate">{provider?.model ?? 'Choose model'}</span>
+                <span aria-hidden>⌄</span>
+              </button>
+
+              {pickerOpen && provider && (
+                <div className="absolute bottom-full left-0 z-20 mb-2 w-[min(360px,calc(100vw-40px))] overflow-hidden
+                                rounded-2xl border border-surface-200 bg-white shadow-xl dark:border-surface-700 dark:bg-surface-800">
+                  <div className="border-b border-surface-100 p-2 dark:border-surface-700">
+                    <input
+                      autoFocus
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      onKeyDown={(event) => { if (event.key === 'Escape') setPickerOpen(false); }}
+                      placeholder="Search models…"
+                      aria-label="Search models"
+                      className="input"
+                    />
+                  </div>
+                  <div role="listbox" aria-label="Models" className="scrollbar-thin max-h-72 overflow-y-auto p-1.5">
+                    {filterModels(models, query).map((model) => (
+                      <button
+                        key={model}
+                        type="button"
+                        role="option"
+                        aria-selected={provider.model === model}
+                        onClick={() => void chooseModel(model)}
+                        className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm
+                                   hover:bg-surface-100 dark:hover:bg-surface-700"
+                      >
+                        <span className="truncate">{model}</span>
+                        {provider.model === model && <span className="text-accent">✓</span>}
+                      </button>
+                    ))}
+                    {!models.length && !modelError && <p className="px-3 py-5 text-center text-sm text-surface-400">Loading models…</p>}
+                    {modelError && <p role="alert" className="px-3 py-3 text-sm text-red-500">{modelError}</p>}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {streaming ? (
+              <button onClick={stop} className="shrink-0 rounded-full bg-surface-900 p-2 text-white
                                            transition-opacity hover:opacity-80 dark:bg-surface-100
                                            dark:text-surface-900" title="Stop generating" aria-label="Stop generating">
-              <IconStop className="h-5 w-5" />
-            </button>
-          ) : (
-            <button
-              onClick={submit}
-              disabled={!text.trim() || !hasProvider}
-              className="shrink-0 rounded-full bg-surface-900 p-2 text-white transition-opacity
-                         hover:opacity-80 disabled:opacity-30 dark:bg-surface-100 dark:text-surface-900"
-              title="Send"
-              aria-label="Send message"
-            >
-              <IconSend className="h-5 w-5" />
-            </button>
-          )}
+                <IconStop className="h-5 w-5" />
+              </button>
+            ) : (
+              <button
+                onClick={submit}
+                disabled={!text.trim() || !hasProvider}
+                className="shrink-0 rounded-full bg-surface-900 p-2 text-white transition-opacity
+                           hover:opacity-80 disabled:opacity-30 dark:bg-surface-100 dark:text-surface-900"
+                title="Send"
+                aria-label="Send message"
+              >
+                <IconSend className="h-5 w-5" />
+              </button>
+            )}
+          </div>
         </div>
 
         <p className="mt-2 hidden text-center text-xs text-surface-700/50 dark:text-surface-200/40 sm:block">
